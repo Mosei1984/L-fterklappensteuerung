@@ -1,4 +1,5 @@
-Native unit tests live in `test/test_controller`.
+Native unit tests for the 80 mm pipe-valve controller live in
+`test/test_controller`.
 
 Run them with:
 
@@ -8,3 +9,7 @@ platformio test -e native
 
 The tests avoid real MCU hardware by using fake implementations of
 `StepperPort`, `UartPort`, `DelayPort`, and `EventSink`.
+Current coverage includes controller timing, homing, StallGuard fallback,
+persistent settings, serial commands, Modbus RTU edge cases and TMC2209 UART.
+Fault recovery is covered with the `REFRESH` command and Modbus command `5`,
+so tests verify that a failed machine can rehome without an MCU reset.

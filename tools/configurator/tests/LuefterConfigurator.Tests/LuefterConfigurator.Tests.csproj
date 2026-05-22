@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.21" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\LuefterConfigurator.Domain\LuefterConfigurator.Domain.csproj" />
+    <ProjectReference Include="..\..\src\LuefterConfigurator.Application\LuefterConfigurator.Application.csproj" />
+    <ProjectReference Include="..\..\src\LuefterConfigurator.Host\LuefterConfigurator.Host.csproj" />
+    <ProjectReference Include="..\..\src\LuefterConfigurator.Infrastructure.Serial\LuefterConfigurator.Infrastructure.Serial.csproj" />
+    <ProjectReference Include="..\..\src\LuefterConfigurator.Infrastructure.ModbusTcp\LuefterConfigurator.Infrastructure.ModbusTcp.csproj" />
+    <ProjectReference Include="..\..\src\LuefterConfigurator.Infrastructure.Firmware\LuefterConfigurator.Infrastructure.Firmware.csproj" />
+    <ProjectReference Include="..\..\src\LuefterConfigurator.Adapters.Loxone\LuefterConfigurator.Adapters.Loxone.csproj" />
+    <ProjectReference Include="..\..\src\LuefterConfigurator.Adapters.HomeAssistant\LuefterConfigurator.Adapters.HomeAssistant.csproj" />
+    <ProjectReference Include="..\..\src\LuefterConfigurator.Adapters.OpenHab\LuefterConfigurator.Adapters.OpenHab.csproj" />
+    <ProjectReference Include="..\..\src\LuefterConfigurator.Adapters.Modbus\LuefterConfigurator.Adapters.Modbus.csproj" />
+    <ProjectReference Include="..\..\src\LuefterConfigurator.Profiles.FanFlap\LuefterConfigurator.Profiles.FanFlap.csproj" />
+    <ProjectReference Include="..\..\src\LuefterConfigurator.Profiles.Json\LuefterConfigurator.Profiles.Json.csproj" />
+  </ItemGroup>
+
+</Project>

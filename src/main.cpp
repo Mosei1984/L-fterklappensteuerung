@@ -277,6 +277,9 @@ class SerialEventSink final : public EventSink {
       case EventId::ManualHomingStarted:
         output().println(F("Manuelles Homing gestartet."));
         break;
+      case EventId::MachineRefreshStarted:
+        output().println(F("Machine Refresh gestartet. Homing ohne MCU-Reset."));
+        break;
       case EventId::SoftEndstopsEnabled:
         output().println(F("Soft Endstops aktiviert."));
         break;
@@ -337,7 +340,7 @@ class SerialEventSink final : public EventSink {
         output().println(F("Ungueltiges Befehlsargument."));
         break;
       case EventId::ErrorMotorStopped:
-        output().println(F("FEHLER: Motor gestoppt. Warte auf RESET."));
+        output().println(F("FEHLER: Motor gestoppt. REFRESH oder RESET moeglich."));
         break;
       case EventId::AutoRehomeTimeout:
         output().println(F("Reset-Timeout erreicht. Automatisches Re-Homing."));

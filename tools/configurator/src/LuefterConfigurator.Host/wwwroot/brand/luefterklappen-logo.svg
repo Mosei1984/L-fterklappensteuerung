@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 220" role="img" aria-labelledby="title desc">
+  <title id="title">Luefterklappen Konfigurator</title>
+  <desc id="desc">Wortmarke mit 80-mm-Rohrventil-Symbol fuer die Windows Service-App.</desc>
+  <defs>
+    <linearGradient id="markBg" x1="16" y1="18" x2="178" y2="184" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#172026"/>
+      <stop offset="0.58" stop-color="#0f7f86"/>
+      <stop offset="1" stop-color="#58c1b7"/>
+    </linearGradient>
+  </defs>
+  <rect x="14" y="24" width="172" height="172" rx="34" fill="url(#markBg)"/>
+  <circle cx="100" cy="105" r="54" fill="#f7fafb" opacity="0.96"/>
+  <circle cx="100" cy="105" r="39" fill="#172026" opacity="0.48"/>
+  <circle cx="100" cy="105" r="30" fill="#0f7f86" opacity="0.38"/>
+  <path d="M58 118 127 73c8-5 18 2 18 12v5l-70 46c-8 5-18-1-18-10v-8Z" fill="#eefbfb" opacity="0.98"/>
+  <path d="M65 127 136 81" fill="none" stroke="#f7fafb" stroke-width="7" stroke-linecap="round" opacity="0.9"/>
+  <circle cx="151" cy="61" r="13" fill="#f7fafb"/>
+  <circle cx="151" cy="61" r="6" fill="#0f7f86"/>
+  <path d="M47 181h108" fill="none" stroke="#f7fafb" stroke-width="7" stroke-linecap="round" opacity="0.68"/>
+  <path d="M47 181h56" fill="none" stroke="#58c1b7" stroke-width="7" stroke-linecap="round"/>
+  <text x="101" y="163" fill="#f7fafb" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="16" font-weight="800" text-anchor="middle">80 mm</text>
+
+  <text x="220" y="94" fill="#172026" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="44" font-weight="800" letter-spacing="0">Luefterklappen</text>
+  <text x="222" y="139" fill="#0f7f86" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="30" font-weight="750" letter-spacing="0">Konfigurator</text>
+  <text x="224" y="174" fill="#66727f" font-family="Segoe UI, Inter, Arial, sans-serif" font-size="20" font-weight="600" letter-spacing="0">80-mm-Rohrventil . Loxone Setup . Modbus</text>
+</svg>

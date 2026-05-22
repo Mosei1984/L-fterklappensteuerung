@@ -1,7 +1,12 @@
 $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($env:PLATFORMIO_CORE_DIR)) {
-  $env:PLATFORMIO_CORE_DIR = Join-Path $env:USERPROFILE '.platformio-luefter'
+  $env:PLATFORMIO_CORE_DIR = Join-Path $env:USERPROFILE '.pio-lf'
+}
+
+$mingwBin = 'C:\msys64\mingw64\bin'
+if ((Test-Path $mingwBin) -and (($env:PATH -split ';') -notcontains $mingwBin)) {
+  $env:PATH = "$mingwBin;$env:PATH"
 }
 
 function Invoke-QualityStep {
@@ -15,6 +20,9 @@ function Invoke-QualityStep {
   Write-Host ""
   Write-Host "== $Name =="
   & $Step
+  if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+  }
 }
 
 Invoke-QualityStep "Native unit tests" {
@@ -59,4 +67,20 @@ if ((Test-Path $cppcheckPath) -and (Test-Path $misraAddon)) {
   }
 } else {
   Write-Warning "cppcheck MISRA addon was not found; PlatformIO check remains configured."
+}
+
+$configuratorSolution = '.\tools\configurator\LuefterConfigurator.sln'
+if (Test-Path $configuratorSolution) {
+  Invoke-QualityStep "C# configurator tests" {
+    $localDotnet = Join-Path $env:USERPROFILE '.dotnet8\dotnet.exe'
+    $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+    $dotnetPath = if (Test-Path $localDotnet) { $localDotnet } elseif ($null -ne $dotnet) { $dotnet.Source } else { $localDotnet }
+    if (Test-Path (Split-Path $dotnetPath -Parent)) {
+      $env:DOTNET_ROOT = Split-Path $dotnetPath -Parent
+    }
+    if ([string]::IsNullOrWhiteSpace($env:DOTNET_CLI_HOME)) {
+      $env:DOTNET_CLI_HOME = (Resolve-Path .).Path
+    }
+    & $dotnetPath test $configuratorSolution --no-restore
+  }
 }

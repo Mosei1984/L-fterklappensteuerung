@@ -1,0 +1,400 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Konfigurator";
+}
+
+<div class="app-shell">
+    <header class="topbar" aria-label="Hauptnavigation">
+        <a class="brand" asp-page="/Index" aria-label="Luefterklappen Konfigurator Start">
+            <span class="brand-mark" aria-hidden="true">
+                <img class="brand-logo" src="/brand/luefterklappen-logo-mark.svg" alt="" />
+            </span>
+            <span>
+                <strong>Luefterklappen Konfigurator</strong>
+                <small>Lokales Service-Tool</small>
+            </span>
+        </a>
+        <nav class="topnav" aria-label="Arbeitsbereiche">
+            <a href="#geraete">Geraete</a>
+            <a href="#konfiguration">Konfiguration</a>
+            <a href="#diagnose">Diagnose</a>
+            <a href="#integrationen">Integrationen</a>
+        </nav>
+        <div class="topbar-actions">
+            <span class="connection-pill" data-status-pill>
+                <span aria-hidden="true"></span>
+                Offline
+            </span>
+            <button class="primary-action" type="button" data-action="scan">Ports scannen</button>
+        </div>
+    </header>
+
+    <main class="workspace">
+        <section class="hero-panel" aria-labelledby="overview-title">
+            <div class="hero-content">
+                <p class="section-kicker">Controllerstatus</p>
+                <h1 id="overview-title">80-mm-Rohrventil bereit fuer Inbetriebnahme und Feldtest</h1>
+                <p class="hero-copy">
+                    Mehrere Controller, sichere ID-Vergabe, Modbus RTU/TCP, UF2-Flashing und Exportprofile fuer das 80-mm-Lueftungsventil in Loxone, Home Assistant, MQTT und openHAB.
+                </p>
+                <div class="protocol-strip" aria-label="Aktive Protokolle">
+                    <span>USB Text 115200</span>
+                    <span>RS485 CH2 38400</span>
+                    <span>Modbus TCP lokal</span>
+                    <span>JSON Profile</span>
+                </div>
+                <div class="hero-actions">
+                    <button class="primary-action" type="button" data-action="connect">USB verbinden</button>
+                    <button class="ghost-action" type="button" data-action="import">JSON Profil importieren</button>
+                </div>
+            </div>
+            <aside class="command-center" aria-label="Kommandozentrale">
+                <div class="command-center-header">
+                    <span>Live Preview</span>
+                    <strong data-status-label>Offline</strong>
+                </div>
+                <div class="status-board" aria-label="Systemuebersicht">
+                    <div>
+                        <span>Gefundene Controller</span>
+                        <strong data-metric="controllers">0</strong>
+                    </div>
+                    <div>
+                        <span>Aktive ID</span>
+                        <strong data-metric="active-id">-</strong>
+                    </div>
+                    <div>
+                        <span>Gateway</span>
+                        <strong data-metric="gateway">Stop</strong>
+                    </div>
+                    <div>
+                        <span>Safe Position</span>
+                        <strong data-safe-output>250</strong>
+                    </div>
+                </div>
+                <div class="quick-command">
+                    <span>Naechster Schritt</span>
+                    <strong data-next-step>Portscan starten</strong>
+                </div>
+            </aside>
+        </section>
+
+        <section class="system-strip" aria-label="Schnellstatus">
+            <article class="system-item ok">
+                <span>Firmware</span>
+                <strong>UF2 bereit</strong>
+                <p>Pico-Flashlaufwerk wird automatisch erkannt.</p>
+            </article>
+            <article class="system-item warn">
+                <span>RS485</span>
+                <strong>38400 8N1</strong>
+                <p>Adressierte Textbefehle und Modbus RTU vorbereitet.</p>
+            </article>
+            <article class="system-item calm">
+                <span>Profil</span>
+                <strong>FanFlap v1</strong>
+                <p>Register 0-16, Safe-Position und Softlimits abgebildet.</p>
+            </article>
+        </section>
+
+        <section class="panel wide setup-wizard" aria-labelledby="loxone-wizard-title">
+            <div class="panel-header">
+                <div>
+                    <p class="section-kicker">Gefuehrte Inbetriebnahme</p>
+                    <h2 id="loxone-wizard-title">Loxone Setup</h2>
+                </div>
+                <span class="subtle-status" data-wizard-status>Schritt 1 von 6</span>
+            </div>
+
+            <div class="wizard-layout">
+                <ol class="wizard-steps" aria-label="Loxone Setup Schritte">
+                    <li class="wizard-step active" data-wizard-step="1">
+                        <span>1</span>
+                        <div>
+                            <strong>Loxone vorbereiten</strong>
+                            <p>Modbus TCP Gateway-Adresse, Port und spaetere Controller-ID festlegen.</p>
+                        </div>
+                    </li>
+                    <li class="wizard-step" data-wizard-step="2">
+                        <span>2</span>
+                        <div>
+                            <strong>Pico erkennen</strong>
+                            <p>USB verbinden, Portscan starten und vorhandene ID auslesen.</p>
+                        </div>
+                    </li>
+                    <li class="wizard-step" data-wizard-step="3">
+                        <span>3</span>
+                        <div>
+                            <strong>Firmware flashen</strong>
+                            <p>UF2-Modus pruefen, Firmwaredatei auswaehlen und Flashstatus kontrollieren.</p>
+                        </div>
+                    </li>
+                    <li class="wizard-step" data-wizard-step="4">
+                        <span>4</span>
+                        <div>
+                            <strong>ID und Safe State schreiben</strong>
+                            <p>Controller-ID, Safe-Position und Softlimits setzen und speichern.</p>
+                        </div>
+                    </li>
+                    <li class="wizard-step" data-wizard-step="5">
+                        <span>5</span>
+                        <div>
+                            <strong>Loxone Export herunterladen</strong>
+                            <p>Template, JSON-Vertrag und Registerdoku erzeugen und aus der App laden.</p>
+                        </div>
+                    </li>
+                    <li class="wizard-step" data-wizard-step="6">
+                        <span>6</span>
+                        <div>
+                            <strong>Abschlusscheck</strong>
+                            <p>Statusregister lesen, Gateway pruefen und sichere Fehlerstellung dokumentieren.</p>
+                        </div>
+                    </li>
+                </ol>
+
+                <div class="wizard-card">
+                    <span class="wizard-badge">Loxone zuerst</span>
+                    <strong data-wizard-heading>Loxone vorbereiten</strong>
+                    <p data-wizard-copy>
+                        Der Wizard fuehrt durch die normale Endkunden-Inbetriebnahme. USB Host Test und Rohbefehle bleiben rechts als Expertentest getrennt.
+                    </p>
+                    <div class="wizard-actions">
+                        <button class="ghost-action compact" type="button" data-wizard-back disabled>Zurueck</button>
+                        <button class="primary-action compact" type="button" data-wizard-next>Weiter</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div class="work-grid">
+            <section class="panel" id="geraete" aria-labelledby="devices-title">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Bus & Geraete</p>
+                        <h2 id="devices-title">Controller erkennen</h2>
+                    </div>
+                    <button class="icon-button" type="button" data-action="scan" aria-label="Ports erneut scannen">Scan</button>
+                </div>
+
+                <div class="form-grid">
+                    <label>
+                        Verbindung
+                        <select aria-label="Verbindungstyp">
+                            <option>USB Serial</option>
+                            <option>RS485 CH2</option>
+                            <option>Modbus TCP Gateway</option>
+                        </select>
+                    </label>
+                    <label>
+                        Baudrate
+                        <select aria-label="Baudrate">
+                            <option>115200 USB</option>
+                            <option>38400 RS485</option>
+                        </select>
+                    </label>
+                    <label>
+                        ID Bereich
+                        <input value="1-32" aria-label="ID Bereich" />
+                    </label>
+                    <label>
+                        Timeout
+                        <input value="750 ms" aria-label="Timeout" />
+                    </label>
+                </div>
+
+                <div class="device-list" data-device-list>
+                    <button class="device-row selected" type="button">
+                        <span class="device-dot pending" aria-hidden="true"></span>
+                        <span>
+                            <strong>Kein Controller verbunden</strong>
+                            <small>Scan starten oder USB verbinden</small>
+                        </span>
+                        <em>offline</em>
+                    </button>
+                </div>
+            </section>
+
+            <section class="panel" id="konfiguration" aria-labelledby="config-title">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Parameter</p>
+                        <h2 id="config-title">Lueftersteuerung konfigurieren</h2>
+                    </div>
+                    <button class="ghost-action compact" type="button" data-action="write-config">Schreiben</button>
+                </div>
+
+                <div class="form-grid">
+                    <label>
+                        Controller ID
+                        <input type="number" min="1" max="247" value="1" aria-label="Controller ID" data-controller-id />
+                    </label>
+                    <label>
+                        <span class="label-row">
+                            Safe Position
+                            <strong data-safe-chip>250 / 1000</strong>
+                        </span>
+                        <input type="range" min="0" max="1000" value="250" aria-label="Safe Position" data-safe-slider />
+                    </label>
+                    <label>
+                        Soft Min Steps
+                        <input type="number" value="-12000" aria-label="Soft Min Steps" />
+                    </label>
+                    <label>
+                        Soft Max Steps
+                        <input type="number" value="12000" aria-label="Soft Max Steps" />
+                    </label>
+                </div>
+
+                <div class="command-grid">
+                    <button type="button" data-action="home">Home</button>
+                    <button type="button" data-action="open">Auf 100%</button>
+                    <button type="button" data-action="half">Auf 50%</button>
+                    <button type="button" data-action="safe">Safe anfahren</button>
+                    <button type="button" data-action="refresh-machine">Refresh Machine</button>
+                </div>
+            </section>
+
+            <section class="panel wide" id="diagnose" aria-labelledby="diagnostics-title">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Runtime</p>
+                        <h2 id="diagnostics-title">Diagnose und Register</h2>
+                    </div>
+                    <span class="subtle-status" data-last-event>Warte auf Aktion</span>
+                </div>
+
+                <div class="diagnostics-layout">
+                    <div class="safety-timeline" aria-label="Sicherheitskette">
+                        <div class="state-line active">
+                            <strong>Endstops</strong>
+                            <span>primaere Referenz</span>
+                        </div>
+                        <div class="state-line">
+                            <strong>StallGuard</strong>
+                            <span>Fallback bei Endstopfehler</span>
+                        </div>
+                        <div class="state-line">
+                            <strong>Safe State</strong>
+                            <span>Fehlerposition definierbar</span>
+                        </div>
+                    </div>
+
+                    <div class="register-wrap">
+                        <table class="register-table" aria-label="Modbus Register">
+                            <thead>
+                                <tr>
+                                    <th>Register</th>
+                                    <th>Funktion</th>
+                                    <th>Zugriff</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr><td>0</td><td>Command</td><td><span class="access-chip write">R/W</span></td></tr>
+                                <tr><td>1-2</td><td>Target Steps</td><td><span class="access-chip write">R/W</span></td></tr>
+                                <tr><td>7</td><td>Device ID</td><td><span class="access-chip write">R/W</span></td></tr>
+                                <tr><td>8-11</td><td>State, Flags, Position</td><td><span class="access-chip read">R</span></td></tr>
+                                <tr><td>16</td><td>Safe Position</td><td><span class="access-chip write">R/W</span></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <pre class="console" aria-label="Kommunikationslog" data-console>&gt; Service gestartet
+&gt; Warte auf Controller</pre>
+            </section>
+
+            <section class="panel" id="gateway" aria-labelledby="gateway-title">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Gateway</p>
+                        <h2 id="gateway-title">Modbus TCP</h2>
+                    </div>
+                    <button class="ghost-action compact" type="button" data-action="gateway">Starten</button>
+                </div>
+                <dl class="detail-list">
+                    <div><dt>Bind</dt><dd>127.0.0.1:5020</dd></div>
+                    <div><dt>Backend</dt><dd>RS485 / USB Bridge</dd></div>
+                    <div><dt>Schutz</dt><dd>lokal, keine Cloud</dd></div>
+                </dl>
+            </section>
+
+            <section class="panel expert-test-column" id="expertentest" aria-labelledby="expert-test-title">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Expertenmodus</p>
+                        <h2 id="expert-test-title">Expertentest</h2>
+                    </div>
+                    <span class="subtle-status">Nur Diagnose</span>
+                </div>
+                <div class="expert-tests" aria-label="Host- und Protokolltests">
+                    <article>
+                        <strong>USB Host Test</strong>
+                        <p>COM-Port scannen, `ID?` und `SAFE?` passiv pruefen, ohne Endkunden-Wizard zu blockieren.</p>
+                        <button class="ghost-action compact" type="button" data-action="scan">Host testen</button>
+                    </article>
+                    <article>
+                        <strong>Refresh Machine</strong>
+                        <p>Fehler quittieren und Referenzfahrt neu starten, ohne die MCU per Reset neu zu booten.</p>
+                        <button class="ghost-action compact" type="button" data-action="refresh-machine">Refresh senden</button>
+                    </article>
+                    <article>
+                        <strong>Modbus TCP Test</strong>
+                        <p>Lokales Gateway starten und Registervertrag gegen den aktiven Controller pruefen.</p>
+                        <button class="ghost-action compact" type="button" data-action="gateway">Gateway testen</button>
+                    </article>
+                    <article>
+                        <strong>Exportdaten pruefen</strong>
+                        <p>Loxone XML, JSON-Konfig und Markdown-Doku erzeugen und als Download bereitstellen.</p>
+                        <button class="ghost-action compact" type="button" data-action="export">Daten erzeugen</button>
+                    </article>
+                </div>
+            </section>
+
+            <section class="panel" id="firmware" aria-labelledby="firmware-title">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Wartung</p>
+                        <h2 id="firmware-title">Firmware & Profile</h2>
+                    </div>
+                    <div class="firmware-actions">
+                        <button class="ghost-action compact" type="button" data-action="firmware">UF2 pruefen</button>
+                        <button class="primary-action compact" type="button" data-action="firmware-flash">UF2 flashen</button>
+                    </div>
+                </div>
+                <input class="file-input-hidden" type="file" accept=".uf2" aria-label="UF2 Firmwaredatei" data-firmware-file />
+                <dl class="detail-list">
+                    <div><dt>Firmware</dt><dd>Pico UF2</dd></div>
+                    <div><dt>UF2 Modus</dt><dd data-firmware-mode>Ungeprueft</dd></div>
+                    <div><dt>UF2 Fehler</dt><dd data-firmware-error>-</dd></div>
+                    <div><dt>Letzter Flash</dt><dd data-firmware-flash>Keine Datei</dd></div>
+                    <div><dt>Profilimport</dt><dd>JSON Schema</dd></div>
+                    <div><dt>Mehrgeraete</dt><dd>ID 1-247</dd></div>
+                </dl>
+            </section>
+
+            <section class="panel wide" id="integrationen" aria-labelledby="integrations-title">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Home Automation</p>
+                        <h2 id="integrations-title">Exportadapter</h2>
+                    </div>
+                    <button class="ghost-action compact" type="button" data-action="export">Export testen</button>
+                </div>
+                <div class="adapter-matrix">
+                    <article><span>LX</span><strong>Loxone</strong><em>Virtuelle Ein-/Ausgaenge</em></article>
+                    <article><span>HA</span><strong>Home Assistant</strong><em>MQTT Discovery</em></article>
+                    <article><span>MQ</span><strong>MQTT</strong><em>Topic-Plan vorbereitet</em></article>
+                    <article><span>OH</span><strong>openHAB</strong><em>Items und Sitemap</em></article>
+                    <article><span>MB</span><strong>Modbus TCP</strong><em>Registerdokumentation</em></article>
+                </div>
+                <p class="export-path">Exportziel: <span data-export-path>Noch nicht exportiert</span></p>
+                <div class="export-downloads" data-export-files>
+                    <a href="/api/exports/MB_Luefterklappe_FanFlap_ID1.xml" data-export-downloads>MB_Luefterklappe_FanFlap_ID1.xml</a>
+                    <a href="/api/exports/loxone-fanflap-1.json">loxone-fanflap-1.json</a>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <div class="toast" data-toast role="status" aria-live="polite">Bereit</div>
+</div>

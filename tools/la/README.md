@@ -1,8 +1,8 @@
 # Logic-Analyzer-Tests mit sigrok-cli
 
-Diese Tests pruefen die Steuerung nicht nur auf Quellcode-Ebene, sondern am
-realen Signal: RS485/Modbus, TMC-UART und Stepper-Timing werden aus einem
-sigrok-Capture dekodiert und offline validiert.
+Diese Tests pruefen die 80-mm-Rohrventil-Steuerung nicht nur auf
+Quellcode-Ebene, sondern am realen Signal: RS485/Modbus, TMC-UART und
+Stepper-Timing werden aus einem sigrok-Capture dekodiert und offline validiert.
 
 ## Voraussetzungen
 

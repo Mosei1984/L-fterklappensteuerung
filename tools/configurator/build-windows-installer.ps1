@@ -1,0 +1,59 @@
+param(
+  [string] $Runtime = 'win-x64',
+  [string] $OutputDirectory = ''
+)
+
+$ErrorActionPreference = 'Stop'
+
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+  $OutputDirectory = Join-Path $repoRoot "artifacts\configurator-installer\$Runtime"
+}
+
+$portableOutput = Join-Path $OutputDirectory 'payload'
+$installerZip = Join-Path $OutputDirectory "Luefterklappen-Konfigurator-$Runtime.zip"
+$publishScript = Join-Path $PSScriptRoot 'publish-portable.ps1'
+$installScript = Join-Path $PSScriptRoot 'install-windows.ps1'
+$uninstallScript = Join-Path $PSScriptRoot 'uninstall-windows.ps1'
+$eula = Join-Path $PSScriptRoot 'EULA.md'
+$icon = Join-Path $PSScriptRoot 'src\LuefterConfigurator.Host\Assets\logo\luefterklappen.ico'
+
+New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+
+& $publishScript -Runtime $Runtime -OutputDirectory $portableOutput
+if ($LASTEXITCODE -ne 0) {
+  exit $LASTEXITCODE
+}
+
+Copy-Item -LiteralPath $installScript -Destination (Join-Path $portableOutput 'install-windows.ps1') -Force
+Copy-Item -LiteralPath $uninstallScript -Destination (Join-Path $portableOutput 'uninstall-windows.ps1') -Force
+Copy-Item -LiteralPath $eula -Destination (Join-Path $portableOutput 'EULA.md') -Force
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination (Join-Path $portableOutput 'README.md') -Force
+Copy-Item -LiteralPath $icon -Destination (Join-Path $portableOutput 'Luefterklappen-Konfigurator.ico') -Force
+
+$installReadme = @"
+Luefterklappen Konfigurator Windows Installer
+
+1. EULA.md lesen.
+2. PowerShell im entpackten Ordner oeffnen.
+3. Installieren:
+   powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -AcceptEula
+4. Starten:
+   Start Menu > Luefterklappen Konfigurator
+5. Deinstallieren:
+   powershell -ExecutionPolicy Bypass -File .\uninstall-windows.ps1
+
+Installationsstatus: INSTALL_STATUS.json
+"@
+
+Set-Content -Path (Join-Path $portableOutput 'INSTALL_README.txt') -Value $installReadme -Encoding UTF8
+
+if (Test-Path $installerZip) {
+  Remove-Item -LiteralPath $installerZip -Force
+}
+
+Compress-Archive -Path (Join-Path $portableOutput '*') -DestinationPath $installerZip -Force
+
+Write-Host "Installer bundle: $installerZip"
+Write-Host "Payload: $portableOutput"
+Write-Host "Install: .\install-windows.ps1 -AcceptEula"

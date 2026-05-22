@@ -34,6 +34,7 @@ enum class EventId : std::uint8_t {
   ResetDuringWait,
   ResetIgnored,
   ManualHomingStarted,
+  MachineRefreshStarted,
   SoftEndstopsEnabled,
   SoftEndstopsDisabled,
   SoftEndstopsStatus,
@@ -161,9 +162,11 @@ class FanFlapController {
   void handleWaitResetState(std::uint32_t nowMs);
   void handleAutoRehomeState();
   void handleCommandText(const TextView& text);
+  void handleResetCommand();
   void startHomingMin();
   void startHomingMax();
   void resetMotor();
+  void refreshMachine();
   void enterError();
   bool requireReady();
   bool homingMinTravelExceeded() const;

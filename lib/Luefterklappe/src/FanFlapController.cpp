@@ -238,12 +238,9 @@ void FanFlapController::handleCommandText(const TextView& text) {
   } else if (equals(text, "POS?")) {
     emit(EventId::PositionReported, currentPosition());
   } else if (equals(text, "RESET")) {
-    if (state_ == ControllerState::WaitReset) {
-      emit(EventId::ResetDuringWait);
-      resetMotor();
-    } else {
-      emit(EventId::ResetIgnored);
-    }
+    handleResetCommand();
+  } else if (equals(text, "REFRESH") || equals(text, "REFRESH MACHINE")) {
+    refreshMachine();
   } else if (equals(text, "HOME")) {
     emit(EventId::ManualHomingStarted);
     resetMotor();
@@ -262,6 +259,15 @@ void FanFlapController::handleCommandText(const TextView& text) {
     handleSafePositionCommand(argument);
   } else {
     emit(EventId::UnknownCommand);
+  }
+}
+
+void FanFlapController::handleResetCommand() {
+  if (state_ == ControllerState::WaitReset) {
+    emit(EventId::ResetDuringWait);
+    resetMotor();
+  } else {
+    emit(EventId::ResetIgnored);
   }
 }
 
@@ -411,6 +417,13 @@ void FanFlapController::startHomingMax() {
 }
 
 void FanFlapController::resetMotor() { state_ = ControllerState::AutoRehome; }
+
+void FanFlapController::refreshMachine() {
+  motor_.stop();
+  valveFreeCheckActive_ = false;
+  emit(EventId::MachineRefreshStarted);
+  resetMotor();
+}
 
 void FanFlapController::enterError() {
   valveFreeCheckActive_ = false;

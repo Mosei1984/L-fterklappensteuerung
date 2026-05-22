@@ -34,7 +34,8 @@ enum class ModbusCommand : std::uint16_t {
   Home = 1U,
   Reset = 2U,
   SoftEndstopsOn = 3U,
-  SoftEndstopsOff = 4U
+  SoftEndstopsOff = 4U,
+  RefreshMachine = 5U
 };
 
 class ModbusRtuServer {

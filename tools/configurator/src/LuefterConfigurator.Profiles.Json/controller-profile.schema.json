@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Controller Profile",
+  "type": "object",
+  "required": ["id", "displayName", "schemaVersion", "transports", "settings", "registers"],
+  "additionalProperties": false
+}

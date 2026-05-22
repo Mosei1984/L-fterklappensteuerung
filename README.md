@@ -1,6 +1,6 @@
-# Lüfterklappensteuerung
+# Luefterklappensteuerung
 
-MCU-unabhaengige Steuerlogik fuer eine Luefterklappe mit Schrittmotor,
+MCU-unabhaengige Steuerlogik fuer ein 80-mm-Rohrventil mit Schrittmotor,
 TMC2209-UART, RS485/Modbus RTU und zwei Endschaltern. Die eigentliche
 State-Machine liegt in einem portablen Core; `src/main.cpp` ist nur die
 Raspberry-Pi-Pico/Arduino-HAL.
@@ -24,6 +24,8 @@ Raspberry-Pi-Pico/Arduino-HAL.
 - Native Unit-Tests mit Fake-Stepper, Fake-UART, Fake-Zeit und Fake-Events.
 - clang-tidy, cppcheck und MISRA-Addon-Checks ueber das Quality-Skript.
 - sigrok-cli Logic-Analyzer-Testpfad fuer Modbus, TMC-UART und STEP-Timing.
+- Lokaler C# Konfigurator unter `tools/configurator` mit Loxone Setup Wizard,
+  Exporte, JSON-Profile, UF2-Flashing, Logo/Icon-Paket und Modbus-TCP-Gateway.
 - Mermaid-Architektur- und Wiring-Diagramme im README und als `docs/diagrams/*.mmd`.
 - Pico-Onboard-LED als Statusanzeige: Homing blinkt langsam, Ready leuchtet,
   Fehler blinkt schnell.
@@ -92,7 +94,45 @@ flowchart TB
 | `src/main.cpp` | Pico/Arduino-HAL, Pinning, Serial1 RS485, TMC-UART, GPIO |
 | `test/test_controller/test_main.cpp` | Native Unit-Tests fuer Core, Modbus und TMC |
 | `tools/la/` | sigrok-cli Capture, Decode und Offline-Analyse |
+| `tools/configurator/` | Lokaler C# Service mit Browser-UI fuer Setup, Diagnose und Exporte |
 | `docs/diagrams/` | Mermaid-Quellen fuer Architektur und Wiring |
+
+## Konfigurator
+
+Der PC-Konfigurator ist das primaere Service-Tool fuer die Inbetriebnahme des
+80-mm-Rohrventils. Er startet lokal auf `http://127.0.0.1:5184` und fuehrt
+normale Nutzer zuerst durch den **Loxone Setup Wizard**:
+
+1. Loxone/Modbus-TCP-Daten vorbereiten.
+2. Pico ueber USB erkennen.
+3. UF2-Firmware pruefen und flashen.
+4. Controller-ID, Safe-Position und Grenzen schreiben.
+5. Loxone XML, JSON-Konfig und Markdown-Doku erzeugen und herunterladen.
+6. Abschlusscheck fuer Statusregister und Gateway durchlaufen.
+
+USB Host Test, Rohbefehle und Gateway-Diagnose bleiben in einer getrennten
+Expertentest-Spalte. Die Windows-Paketierung erzeugt ein sichtbares App-Icon
+fuer EXE, Startmenue, Installationsordner und Browser-Favicon.
+
+Start aus dem Quellbaum:
+
+```powershell
+$env:DOTNET_ROOT='C:\Users\mosei\.dotnet8'
+$env:DOTNET_CLI_HOME=(Resolve-Path .\.dotnet-cli-home).Path
+& 'C:\Users\mosei\.dotnet8\dotnet.exe' run --project .\tools\configurator\src\LuefterConfigurator.Host
+```
+
+Windows Installation bauen:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\configurator\build-windows-installer.ps1
+```
+
+Das Paket liegt danach unter:
+
+```text
+artifacts/configurator-installer/win-x64/Luefterklappen-Konfigurator-win-x64.zip
+```
 
 ## Komplettes Wiring
 
@@ -192,8 +232,10 @@ keine Kraft gegen eine Blockade aufbauen. Deshalb gilt:
 
 - Nach gueltigem Homing faehrt die Steuerung die konfigurierbare Safe-Position
   an. Default ist `1000` Promille, also offen.
-- Im Fehlerfall stoppt der Motor, der Treiber wird deaktiviert, weitere
-  Bewegungen werden bis `RESET` blockiert.
+- Im Fehlerfall stoppt der Motor, der Treiber wird deaktiviert. Danach ist
+  `REFRESH` der bevorzugte Weg: Fehler quittieren, Maschine neu referenzieren,
+  aber MCU/Pico nicht neu booten. `RESET` bleibt als Kompatibilitaetsbefehl
+  erhalten.
 - StallGuard wird beim Homing nur redundant benutzt: Wenn der jeweilige
   Endschalter nicht ausloest, darf StallGuard die mechanische Endlage erkennen.
 - Bei normaler Bewegung und beim kurzen Wegfahr-Free-Check bedeutet StallGuard
@@ -233,7 +275,7 @@ Adressen sind 0-basiert, passend fuer Loxone Config.
 
 | Adresse | Zugriff | Bedeutung |
 | --- | --- | --- |
-| 0 | R/W | Kommando: `0` none, `1` home, `2` reset, `3` soft endstops on, `4` off |
+| 0 | R/W | Kommando: `0` none, `1` home, `2` reset, `3` soft endstops on, `4` off, `5` refresh machine |
 | 1 | R/W | Zielposition Steps High Word |
 | 2 | R/W | Zielposition Steps Low Word |
 | 3 | R/W | Soft-Min Steps High Word |
@@ -256,6 +298,11 @@ Empfohlen fuer Loxone:
 - Register `14` als analoger Aktor `0..1000`.
 - Register `16` als Parameter fuer die Safe-Position verwenden.
 - Register `8`, `9`, `15`, `16` langsam pollen, z. B. alle `2..5 s`.
+- Register `0` mit Wert `5` als Fehler-Rehome/Refresh-Machine-Befehl
+  vorsehen, damit nach Blockade oder Endschalterfehler kein Pico-Reset noetig
+  ist.
+- Register `0..16` koennen in einem Holding-Register-Block gelesen werden,
+  damit Loxone/Modbus-TCP-Gateways den Zustand konsistent erfassen.
 - Schnelle Bewegung, Endschalter, Softlimits, StallGuard und Fehlerbehandlung
   lokal im Controller lassen.
 
@@ -272,7 +319,9 @@ adressierte Befehle funktionieren dort ebenfalls.
 | `ID<n> GOTO <steps>` | Zielposition in Steps setzen |
 | `ID<n> POS?` | aktuelle Position melden |
 | `ID<n> HOME` | Homing starten |
-| `ID<n> RESET` | Fehler quittieren und Homing starten |
+| `ID<n> REFRESH` | Fehler quittieren und Homing ohne MCU-Reset starten |
+| `ID<n> REFRESH MACHINE` | Alias fuer `REFRESH` |
+| `ID<n> RESET` | Kompatibilitaetsbefehl fuer Fehler quittieren und Homing |
 | `ID<n> SOFTMIN <steps>` | Soft-Min setzen |
 | `ID<n> SOFTMAX <steps>` | Soft-Max setzen |
 | `ID<n> SOFTENDSTOPS ON` | Soft-Endstops aktivieren |
@@ -355,6 +404,23 @@ ID1 SAFE 1000
 Alternativ Modbus Holding-Register `16` mit `0..1000` schreiben.
 
 ### 6. Loxone konfigurieren
+
+1. Im Configurator `Export testen` ausfuehren und die Dateien
+   `MB_Luefterklappe_FanFlap_ID<id>.xml`, `loxone-fanflap-<id>.json` und
+   `loxone-fanflap-<id>.md` herunterladen.
+2. Loxone Modbus Extension als RTU-Master verwenden oder den lokalen
+   Modbus-TCP-Gateway des Configurators auf `127.0.0.1:5020` nutzen.
+3. Die `MB_*.xml` in den Loxone-Config-Template-Ordner `Comm` importieren
+   bzw. kopieren.
+4. Schnittstelle auf `38400`, `8N1` einstellen.
+5. Slave-ID auf die Firmware-ID setzen, Default `1`.
+6. Analogausgang auf Holding-Register `14`, Wertebereich `0..1000`.
+7. Parameter fuer Safe-Position auf Holding-Register `16`, Wertebereich
+   `0..1000`.
+8. Status langsam lesen: Register `8`, `9`, `15`, `16`, Intervall `2..5 s`.
+9. Bei mehreren Klappen jede Klappe mit eigener ID betreiben.
+
+Manuelle Minimal-Konfiguration ohne Exportdateien:
 
 1. Loxone Modbus Extension als RTU-Master verwenden.
 2. Schnittstelle auf `38400`, `8N1` einstellen.

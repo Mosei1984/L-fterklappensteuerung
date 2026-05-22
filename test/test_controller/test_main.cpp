@@ -276,6 +276,12 @@ void feedModbusFrame(ModbusRtuServer& server, std::uint8_t* const frame,
   }
 }
 
+std::uint16_t responseUint16(const FakeUart& uart, const std::size_t offset) {
+  return static_cast<std::uint16_t>(
+      (static_cast<std::uint16_t>(uart.written_[offset]) << 8U) |
+      uart.written_[offset + 1U]);
+}
+
 void bringControllerToReady(FanFlapController& controller, FakeStepper& stepper,
                             CapturingEvents& events) {
   controller.begin();
@@ -697,6 +703,45 @@ void test_reset_command_in_wait_reset_starts_rehome() {
   TEST_ASSERT_TRUE(stepper.enabled_);
 }
 
+void test_refresh_machine_command_rehomes_from_fault_without_mcu_reset() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.speed_ = 1.0F;
+  controller.tick(DigitalInputs{true, false, false}, 20U);
+  TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
+  events.clear();
+
+  controller.handleCommand("REFRESH");
+  TEST_ASSERT_EQUAL(ControllerState::AutoRehome, controller.state());
+  TEST_ASSERT_TRUE(events.contains(EventId::MachineRefreshStarted));
+  TEST_ASSERT_FALSE(events.contains(EventId::SystemStarted));
+
+  controller.tick(kNoInputs, 21U);
+  TEST_ASSERT_EQUAL(ControllerState::HomingMin, controller.state());
+  TEST_ASSERT_TRUE(stepper.enabled_);
+}
+
+void test_refresh_machine_command_rehomes_when_addressed() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  controller.handleCommand("ID 7");
+  events.clear();
+
+  controller.handleCommand("ID1 REFRESH");
+  TEST_ASSERT_EQUAL(ControllerState::Ready, controller.state());
+  TEST_ASSERT_EQUAL_UINT32(0U, events.count_);
+
+  controller.handleCommand("ID7 REFRESH");
+  TEST_ASSERT_EQUAL(ControllerState::AutoRehome, controller.state());
+  TEST_ASSERT_TRUE(events.contains(EventId::MachineRefreshStarted));
+}
+
 void test_soft_endstops_can_be_disabled_for_service_moves() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -838,6 +883,40 @@ void test_modbus_read_ignores_wrong_address_and_bad_crc() {
   TEST_ASSERT_EQUAL_UINT32(0U, uart.writtenCount_);
 }
 
+void test_modbus_read_ignores_broadcast_and_rejects_invalid_ranges() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  bringControllerToReady(controller, stepper, events);
+
+  std::uint8_t broadcastRead[8]{0U, 0x03U, 0U, 8U, 0U, 2U, 0U, 0U};
+  feedModbusFrame(server, broadcastRead, 6U);
+  TEST_ASSERT_EQUAL_UINT32(0U, uart.writtenCount_);
+
+  std::uint8_t zeroQuantity[8]{1U, 0x03U, 0U, 8U, 0U, 0U, 0U, 0U};
+  feedModbusFrame(server, zeroQuantity, 6U);
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x83U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
+
+  uart.clearWritten();
+  std::uint8_t tooManyRegisters[8]{1U, 0x03U, 0U, 0U, 0U, 18U, 0U, 0U};
+  feedModbusFrame(server, tooManyRegisters, 6U);
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x83U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
+
+  uart.clearWritten();
+  std::uint8_t endOverflow[8]{1U, 0x03U, 0U, 16U, 0U, 2U, 0U, 0U};
+  feedModbusFrame(server, endOverflow, 6U);
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x83U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
+}
+
 void test_modbus_reads_status_and_permille_registers() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -855,17 +934,32 @@ void test_modbus_reads_status_and_permille_registers() {
   TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[1]);
   TEST_ASSERT_EQUAL_UINT8(16U, uart.written_[2]);
   TEST_ASSERT_EQUAL_UINT16(static_cast<std::uint16_t>(ControllerState::Ready),
-                           (static_cast<std::uint16_t>(uart.written_[3])
-                                << 8U) |
-                               uart.written_[4]);
-  TEST_ASSERT_EQUAL_UINT16(0x0005U,
-                           (static_cast<std::uint16_t>(uart.written_[5])
-                                << 8U) |
-                               uart.written_[6]);
-  TEST_ASSERT_EQUAL_UINT16(1000U,
-                           (static_cast<std::uint16_t>(uart.written_[17])
-                                << 8U) |
-                               uart.written_[18]);
+                           responseUint16(uart, 3U));
+  TEST_ASSERT_EQUAL_UINT16(0x0005U, responseUint16(uart, 5U));
+  TEST_ASSERT_EQUAL_UINT16(1000U, responseUint16(uart, 17U));
+}
+
+void test_modbus_reads_complete_loxone_register_block() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  bringControllerToReady(controller, stepper, events);
+
+  std::uint8_t request[8]{1U, 0x03U, 0U, 0U, 0U, 17U, 0U, 0U};
+  feedModbusFrame(server, request, 6U);
+
+  TEST_ASSERT_EQUAL_UINT32(39U, uart.writtenCount_);
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(34U, uart.written_[2]);
+  TEST_ASSERT_EQUAL_UINT16(1U, responseUint16(uart, 17U));
+  TEST_ASSERT_EQUAL_UINT16(static_cast<std::uint16_t>(ControllerState::Ready),
+                           responseUint16(uart, 19U));
+  TEST_ASSERT_EQUAL_UINT16(controller.safePositionPermille(),
+                           responseUint16(uart, 35U));
 }
 
 void test_modbus_write_target_permille_moves_when_ready() {
@@ -891,6 +985,26 @@ void test_modbus_write_target_permille_moves_when_ready() {
   TEST_ASSERT_EQUAL_UINT32(8U, uart.writtenCount_);
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x06U, uart.written_[1]);
+}
+
+void test_modbus_broadcast_write_is_ignored_for_home_safety() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  bringControllerToReady(controller, stepper, events);
+  events.clear();
+
+  std::uint8_t request[8]{0U, 0x06U, 0U, 14U, 0U, 1000U >> 8U, 0U, 0U};
+  writeModbusUint16(request, 4U, 1000U);
+  feedModbusFrame(server, request, 6U);
+
+  TEST_ASSERT_EQUAL_INT32(400, controller.targetPosition());
+  TEST_ASSERT_EQUAL_INT32(400, stepper.target_);
+  TEST_ASSERT_EQUAL_UINT32(0U, events.count_);
+  TEST_ASSERT_EQUAL_UINT32(0U, uart.writtenCount_);
 }
 
 void test_modbus_safe_position_register_validates_and_updates() {
@@ -964,6 +1078,28 @@ void test_modbus_rejects_invalid_command_values() {
   TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[2]);
 }
 
+void test_modbus_refresh_machine_command_rehomes_from_fault() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.speed_ = 1.0F;
+  controller.tick(DigitalInputs{true, false, false}, 20U);
+  TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
+  events.clear();
+
+  std::uint8_t request[8]{1U, 0x06U, 0U, 0U, 0U, 5U, 0U, 0U};
+  feedModbusFrame(server, request, 6U);
+
+  TEST_ASSERT_EQUAL(ControllerState::AutoRehome, controller.state());
+  TEST_ASSERT_TRUE(events.contains(EventId::MachineRefreshStarted));
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x06U, uart.written_[1]);
+}
+
 void test_modbus_write_multiple_registers_is_atomic_on_late_error() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -1002,6 +1138,27 @@ void test_modbus_write_multiple_target_words_uses_final_32bit_value() {
 
   TEST_ASSERT_EQUAL_INT32(800, controller.targetPosition());
   TEST_ASSERT_EQUAL_INT32(800, stepper.target_);
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x10U, uart.written_[1]);
+}
+
+void test_modbus_write_multiple_target_words_preserves_signed_32bit_value() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  bringControllerToReady(controller, stepper, events);
+  TEST_ASSERT_TRUE(controller.setSoftEndstopsEnabled(false));
+  events.clear();
+
+  std::uint8_t request[13]{1U, 0x10U, 0U, 1U, 0U, 2U, 4U,
+                           0xFFU, 0xFFU, 0xFFU, 0x9CU, 0U, 0U};
+  feedModbusFrame(server, request, 11U);
+
+  TEST_ASSERT_EQUAL_INT32(-100, controller.targetPosition());
+  TEST_ASSERT_EQUAL_INT32(-100, stepper.target_);
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x10U, uart.written_[1]);
 }
@@ -1117,19 +1274,26 @@ int main(int argc, char** argv) {
   RUN_TEST(test_move_starts_and_passes_valve_free_check);
   RUN_TEST(test_move_free_check_faults_when_valve_is_blocked);
   RUN_TEST(test_reset_command_in_wait_reset_starts_rehome);
+  RUN_TEST(test_refresh_machine_command_rehomes_from_fault_without_mcu_reset);
+  RUN_TEST(test_refresh_machine_command_rehomes_when_addressed);
   RUN_TEST(test_soft_endstops_can_be_disabled_for_service_moves);
   RUN_TEST(test_device_id_can_be_reported_and_changed);
   RUN_TEST(test_device_id_rejects_invalid_values);
   RUN_TEST(test_addressed_commands_only_execute_for_matching_id);
   RUN_TEST(test_addressed_command_rejects_malformed_id_prefix);
   RUN_TEST(test_modbus_read_ignores_wrong_address_and_bad_crc);
+  RUN_TEST(test_modbus_read_ignores_broadcast_and_rejects_invalid_ranges);
   RUN_TEST(test_modbus_reads_status_and_permille_registers);
+  RUN_TEST(test_modbus_reads_complete_loxone_register_block);
   RUN_TEST(test_modbus_write_target_permille_moves_when_ready);
+  RUN_TEST(test_modbus_broadcast_write_is_ignored_for_home_safety);
   RUN_TEST(test_modbus_safe_position_register_validates_and_updates);
   RUN_TEST(test_modbus_rejects_invalid_register_and_device_id);
   RUN_TEST(test_modbus_rejects_invalid_command_values);
+  RUN_TEST(test_modbus_refresh_machine_command_rehomes_from_fault);
   RUN_TEST(test_modbus_write_multiple_registers_is_atomic_on_late_error);
   RUN_TEST(test_modbus_write_multiple_target_words_uses_final_32bit_value);
+  RUN_TEST(test_modbus_write_multiple_target_words_preserves_signed_32bit_value);
   RUN_TEST(test_modbus_write_multiple_rejects_command_mixed_with_target);
   RUN_TEST(test_tmc_driver_initializes_and_polls_stall_status);
   RUN_TEST(test_tmc_driver_accepts_datasheet_read_reply_master_address);

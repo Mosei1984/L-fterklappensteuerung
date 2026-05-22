@@ -6,7 +6,7 @@ namespace luefterklappe {
 namespace {
 
 constexpr std::uint16_t kRegisterCount = 17U;
-constexpr std::uint16_t kMaxReadRegisters = 16U;
+constexpr std::uint16_t kMaxReadRegisters = kRegisterCount;
 constexpr std::size_t kMaxWriteRegisters = kRegisterCount;
 constexpr std::uint16_t kReadyFlag = 0x0001U;
 constexpr std::uint16_t kFaultFlag = 0x0002U;
@@ -254,7 +254,7 @@ bool ModbusRtuServer::validCrc() const {
 }
 
 bool ModbusRtuServer::isForThisDevice() const {
-  return (buffer_[0] == controller_.deviceId()) || (buffer_[0] == 0U);
+  return buffer_[0] == controller_.deviceId();
 }
 
 std::uint8_t ModbusRtuServer::validateRegisterWrites(
@@ -346,6 +346,7 @@ std::uint8_t ModbusRtuServer::validateRegisterWrite(
         case ModbusCommand::Reset:
         case ModbusCommand::SoftEndstopsOn:
         case ModbusCommand::SoftEndstopsOff:
+        case ModbusCommand::RefreshMachine:
           return kNoException;
       }
       return kIllegalDataValue;
@@ -650,6 +651,9 @@ void ModbusRtuServer::executeCommand(const std::uint16_t value) {
       break;
     case ModbusCommand::SoftEndstopsOff:
       static_cast<void>(controller_.setSoftEndstopsEnabled(false));
+      break;
+    case ModbusCommand::RefreshMachine:
+      controller_.handleCommand("REFRESH");
       break;
   }
 }
