@@ -1,0 +1,37 @@
+flowchart LR
+  Pico["Raspberry Pi Pico<br/>Arduino-Pico firmware"]
+  Rs485["Waveshare Pico-2CH-RS485<br/>CH0 only"]
+  Loxone["Loxone Modbus Extension<br/>RS485 master"]
+  Tmc["TMC2209 driver module"]
+  Motor["Stepper motor"]
+  Min["MIN endstop<br/>NO switch to GND"]
+  Max["MAX endstop<br/>NO switch to GND"]
+  Psu["Motor PSU<br/>according to driver and motor"]
+  La["Logic analyzer<br/>optional"]
+  Usb["USB host<br/>debug serial 115200"]
+
+  Pico -- "GP0 Serial1 TX" --> Rs485
+  Rs485 -- "GP1 Serial1 RX" --> Pico
+  Rs485 <-->|"A/B twisted pair + GND<br/>38400 8N1"| Loxone
+
+  Pico -- "GP2 STEP" --> Tmc
+  Pico -- "GP3 DIR" --> Tmc
+  Pico -- "GP7 ENABLE active low" --> Tmc
+  Pico -- "GP8 UART TX" --> Tmc
+  Tmc -- "GP9 UART RX" --> Pico
+  Pico -- "3V3 VIO + GND" --> Tmc
+  Psu -- "VMOT + GND" --> Tmc
+  Tmc -- "A1/A2/B1/B2" --> Motor
+
+  Min -- "GP5 input pullup<br/>active low" --> Pico
+  Max -- "GP6 input pullup<br/>active low" --> Pico
+  Usb <-->|"USB CDC"| Pico
+
+  La -. "D0: GP0 RS485 TX" .-> Pico
+  La -. "D1: GP1 RS485 RX" .-> Pico
+  La -. "D2: GP2 STEP" .-> Pico
+  La -. "D3: GP3 DIR" .-> Pico
+  La -. "D4: GP5 MIN" .-> Pico
+  La -. "D5: GP6 MAX" .-> Pico
+  La -. "D6: GP7 ENABLE" .-> Pico
+  La -. "D7: GP8 TMC TX<br/>or GP9 TMC RX in second run" .-> Pico

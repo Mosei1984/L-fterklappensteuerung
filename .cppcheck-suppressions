@@ -1,0 +1,5 @@
+missingIncludeSystem
+unmatchedSuppression
+unusedFunction:*/test/*
+unusedFunction:*/src/main.cpp
+unusedFunction:*/lib/Luefterklappe/src/*

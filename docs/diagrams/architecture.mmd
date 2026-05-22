@@ -1,0 +1,47 @@
+flowchart TB
+  subgraph Home["Home automation"]
+    Loxone["Loxone Modbus Extension<br/>RS485 master"]
+  end
+
+  subgraph PicoHal["Pico HAL: src/main.cpp"]
+    Usb["USB Serial<br/>debug events"]
+    Rs485Hal["Serial1 RS485<br/>GP0/GP1, 38400 8N1"]
+    TmcHal["TMC UART HAL<br/>GP8/GP9, 115200 8N1"]
+    StepperHal["AccelStepper HAL<br/>STEP/DIR/ENABLE"]
+    InputHal["GPIO inputs<br/>MIN/MAX endstops"]
+    FlashHal["FlashIAP settings<br/>last flash sector"]
+  end
+
+  subgraph Core["MCU independent core: lib/Luefterklappe/src"]
+    Modbus["ModbusRtuServer<br/>CRC16, address filter, registers"]
+    Controller["FanFlapController<br/>state machine, homing, faults"]
+    Tmc["Tmc2209Driver<br/>UART datagrams, CRC, StallGuard"]
+    Settings["PersistentSettings<br/>magic, version, CRC"]
+    Ports["IoPorts interfaces<br/>StepperPort, UartPort, DelayPort, EventSink"]
+  end
+
+  subgraph Hardware["Field hardware"]
+    Driver["TMC2209 stepper driver"]
+    Motor["Stepper motor"]
+    MinMax["Min/Max switches"]
+    Rs485Bus["2-wire RS485 bus"]
+  end
+
+  Loxone <-->|"Modbus RTU"| Rs485Bus
+  Rs485Bus <-->|"A/B + GND"| Rs485Hal
+  Rs485Hal --> Modbus
+  Modbus --> Controller
+  Modbus --> Settings
+  Settings --> FlashHal
+  Controller --> StepperHal
+  Controller --> Tmc
+  Tmc --> TmcHal
+  TmcHal <-->|"UART"| Driver
+  StepperHal -->|"STEP/DIR/ENABLE"| Driver
+  Driver --> Motor
+  MinMax --> InputHal
+  InputHal --> Controller
+  Controller --> Usb
+  Controller -. uses .-> Ports
+  Modbus -. uses .-> Ports
+  Tmc -. uses .-> Ports

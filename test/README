@@ -1,0 +1,10 @@
+Native unit tests live in `test/test_controller`.
+
+Run them with:
+
+```powershell
+platformio test -e native
+```
+
+The tests avoid real MCU hardware by using fake implementations of
+`StepperPort`, `UartPort`, `DelayPort`, and `EventSink`.
