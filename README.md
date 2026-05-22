@@ -1,4 +1,4 @@
-# Luefterklappensteuerung
+# Lüfterklappensteuerung
 
 MCU-unabhaengige Steuerlogik fuer eine Luefterklappe mit Schrittmotor,
 TMC2209-UART, RS485/Modbus RTU und zwei Endschaltern. Die eigentliche
