@@ -4,12 +4,14 @@
 #include <cstdint>
 
 #include <FanFlapController.h>
+#include <InputDebouncer.h>
 #include <ModbusRtuServer.h>
 #include <PersistentSettings.h>
 #include <Tmc2209Driver.h>
 
 namespace {
 
+using luefterklappe::BootReason;
 using luefterklappe::ControllerConfig;
 using luefterklappe::ControllerState;
 using luefterklappe::DelayPort;
@@ -18,6 +20,8 @@ using luefterklappe::Event;
 using luefterklappe::EventId;
 using luefterklappe::EventSink;
 using luefterklappe::FanFlapController;
+using luefterklappe::FaultReason;
+using luefterklappe::InputDebouncer;
 using luefterklappe::ModbusRegister;
 using luefterklappe::ModbusRtuServer;
 using luefterklappe::PersistentSettings;
@@ -25,10 +29,12 @@ using luefterklappe::PersistentSettingsStore;
 using luefterklappe::SettingsStoragePort;
 using luefterklappe::StepperPort;
 using luefterklappe::Tmc2209Driver;
+using luefterklappe::Tmc2209PollResult;
 using luefterklappe::UartPort;
 
 constexpr ControllerConfig kFastTestConfig{1000L, 5UL, 100UL, 400.0F, 200.0F,
-                                           1000.0F, 500U, 20L};
+                                           1000.0F, 500U, 20L, 2000UL,
+                                           3000UL, 2L};
 
 constexpr DigitalInputs kNoInputs{false, false, false};
 
@@ -164,27 +170,41 @@ class FakeSettingsStorage final : public SettingsStoragePort {
     }
   }
 
-  bool read(std::uint8_t* const data, const std::size_t size) override {
-    if ((!readOk_) || (size > kCapacity)) {
+  std::size_t slotCount() const override { return kSlotCount; }
+
+  std::size_t slotSize() const override { return kSlotSize; }
+
+  bool readSlot(const std::size_t slot, std::uint8_t* const data,
+                const std::size_t size) override {
+    if ((!readOk_) || (slot >= kSlotCount) || (size > kSlotSize)) {
       return false;
     }
 
+    const std::size_t offset = slot * kSlotSize;
     for (std::size_t index = 0U; index < size; ++index) {
-      data[index] = bytes_[index];
+      data[index] = bytes_[offset + index];
     }
 
     return true;
   }
 
-  bool write(const std::uint8_t* const data, const std::size_t size) override {
-    if ((!writeOk_) || (size > kCapacity)) {
+  bool writeSlot(const std::size_t slot, const std::uint8_t* const data,
+                 const std::size_t size) override {
+    if ((!writeOk_) || (slot >= kSlotCount) || (size > kSlotSize)) {
       return false;
     }
 
+    if (failNextWriteSlot_ == slot) {
+      failNextWriteSlot_ = kNoSlot;
+      return false;
+    }
+
+    const std::size_t offset = slot * kSlotSize;
     for (std::size_t index = 0U; index < size; ++index) {
-      bytes_[index] = data[index];
+      bytes_[offset + index] = data[index];
     }
     ++writeCount_;
+    lastWrittenSlot_ = slot;
     return true;
   }
 
@@ -194,11 +214,20 @@ class FakeSettingsStorage final : public SettingsStoragePort {
     }
   }
 
+  void failNextWriteForSlot(const std::size_t slot) {
+    failNextWriteSlot_ = slot;
+  }
+
+  static constexpr std::size_t kSlotCount = 2U;
+  static constexpr std::size_t kSlotSize = 16U;
   static constexpr std::size_t kCapacity = 32U;
+  static constexpr std::size_t kNoSlot = static_cast<std::size_t>(-1);
   std::uint8_t bytes_[kCapacity]{};
   bool readOk_{true};
   bool writeOk_{true};
   std::uint32_t writeCount_{0U};
+  std::size_t lastWrittenSlot_{kNoSlot};
+  std::size_t failNextWriteSlot_{kNoSlot};
 };
 
 std::uint8_t tmcCrc(const std::uint8_t* const data,
@@ -337,6 +366,44 @@ void test_persistent_settings_reject_corrupt_or_out_of_range_data() {
   TEST_ASSERT_EQUAL_UINT16(1000U, loaded.safePositionPermille);
 }
 
+void test_persistent_settings_loads_newest_valid_record() {
+  FakeSettingsStorage storage;
+  PersistentSettingsStore store(storage);
+
+  TEST_ASSERT_TRUE(store.save(PersistentSettings{7U, 750U}));
+  TEST_ASSERT_TRUE(store.save(PersistentSettings{8U, 250U}));
+
+  const PersistentSettings loaded = store.load();
+  TEST_ASSERT_EQUAL_UINT8(8U, loaded.deviceId);
+  TEST_ASSERT_EQUAL_UINT16(250U, loaded.safePositionPermille);
+}
+
+void test_persistent_settings_falls_back_to_previous_slot_after_corruption() {
+  FakeSettingsStorage storage;
+  PersistentSettingsStore store(storage);
+
+  TEST_ASSERT_TRUE(store.save(PersistentSettings{7U, 750U}));
+  TEST_ASSERT_TRUE(store.save(PersistentSettings{8U, 250U}));
+  storage.corruptByte(16U);
+
+  const PersistentSettings loaded = store.load();
+  TEST_ASSERT_EQUAL_UINT8(7U, loaded.deviceId);
+  TEST_ASSERT_EQUAL_UINT16(750U, loaded.safePositionPermille);
+}
+
+void test_persistent_settings_survives_target_slot_write_failure() {
+  FakeSettingsStorage storage;
+  PersistentSettingsStore store(storage);
+
+  TEST_ASSERT_TRUE(store.save(PersistentSettings{7U, 750U}));
+  storage.failNextWriteForSlot(1U);
+  TEST_ASSERT_FALSE(store.save(PersistentSettings{8U, 250U}));
+
+  const PersistentSettings loaded = store.load();
+  TEST_ASSERT_EQUAL_UINT8(7U, loaded.deviceId);
+  TEST_ASSERT_EQUAL_UINT16(750U, loaded.safePositionPermille);
+}
+
 void test_homing_sequence_sets_range_and_midpoint() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -377,6 +444,35 @@ void test_homing_sequence_sets_range_and_midpoint() {
   TEST_ASSERT_EQUAL(ControllerState::Ready, controller.state());
   TEST_ASSERT_EQUAL_INT32(400, controller.targetPosition());
   TEST_ASSERT_EQUAL_INT32(400, stepper.target_);
+}
+
+void test_input_debouncer_requires_stable_switch_state() {
+  InputDebouncer debouncer(5U);
+
+  DigitalInputs stable = debouncer.tick(kNoInputs, 0U);
+  TEST_ASSERT_FALSE(stable.minSwitchActive);
+  TEST_ASSERT_FALSE(stable.maxSwitchActive);
+  TEST_ASSERT_FALSE(stable.stallGuardActive);
+
+  stable = debouncer.tick(DigitalInputs{true, false, false}, 1U);
+  TEST_ASSERT_FALSE(stable.minSwitchActive);
+
+  stable = debouncer.tick(DigitalInputs{true, false, false}, 6U);
+  TEST_ASSERT_TRUE(stable.minSwitchActive);
+}
+
+void test_both_endstops_active_at_boot_enters_fault() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  controller.begin();
+  controller.tick(DigitalInputs{true, true, false}, 0U);
+
+  TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
+  TEST_ASSERT_EQUAL(
+      static_cast<std::uint16_t>(FaultReason::BothEndstopsActiveAtBoot),
+      static_cast<std::uint16_t>(controller.lastFaultReason()));
 }
 
 void test_homing_moves_to_configured_safe_position() {
@@ -489,6 +585,23 @@ void test_homing_min_fails_when_switch_is_not_reached_within_travel() {
   TEST_ASSERT_FALSE(stepper.enabled_);
 }
 
+void test_fault_reason_records_homing_min_timeout() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  controller.begin();
+  controller.tick(kNoInputs, 0U);
+  stepper.position_ = -1000;
+  controller.tick(kNoInputs, 1U);
+
+  TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
+  TEST_ASSERT_EQUAL_UINT16(
+      static_cast<std::uint16_t>(FaultReason::HomingMinTravelExceeded),
+      static_cast<std::uint16_t>(controller.lastFaultReason()));
+  TEST_ASSERT_EQUAL_UINT16(1U, controller.faultCount());
+}
+
 void test_homing_max_fails_when_switch_is_not_reached_within_travel() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -506,6 +619,22 @@ void test_homing_max_fails_when_switch_is_not_reached_within_travel() {
   TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
   TEST_ASSERT_TRUE(events.contains(EventId::HomingRangeInvalid));
   TEST_ASSERT_EQUAL_INT32(1000, events.last().first);
+}
+
+void test_fault_reason_records_unexpected_switch_direction() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.speed_ = 1.0F;
+  controller.tick(DigitalInputs{true, false, false}, 20U);
+
+  TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
+  TEST_ASSERT_EQUAL_UINT16(
+      static_cast<std::uint16_t>(FaultReason::UnexpectedMinSwitch),
+      static_cast<std::uint16_t>(controller.lastFaultReason()));
+  TEST_ASSERT_EQUAL_UINT16(1U, controller.faultCount());
 }
 
 void test_reset_timeout_is_exact_and_wraparound_safe() {
@@ -714,6 +843,48 @@ void test_move_free_check_faults_when_valve_is_blocked() {
 
   TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
   TEST_ASSERT_TRUE(events.contains(EventId::StallDetected));
+}
+
+void test_ready_move_faults_when_position_does_not_progress() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  ControllerConfig config = kFastTestConfig;
+  config.motionNoProgressTimeoutMs = 25U;
+  config.motionProgressMinSteps = 2L;
+  FanFlapController controller(stepper, events, config);
+
+  bringControllerToReady(controller, stepper, events);
+  std::int32_t accepted = 0;
+  TEST_ASSERT_TRUE(controller.requestMoveTo(700, accepted));
+  stepper.speed_ = 1.0F;
+  stepper.position_ = 400;
+
+  controller.tick(kNoInputs, 20U);
+  controller.tick(kNoInputs, 46U);
+
+  TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
+  TEST_ASSERT_EQUAL(
+      static_cast<std::uint16_t>(FaultReason::MotionNoProgress),
+      static_cast<std::uint16_t>(controller.lastFaultReason()));
+}
+
+void test_free_check_times_out_before_required_travel() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  ControllerConfig config = kFastTestConfig;
+  config.freeCheckTimeoutMs = 15U;
+  FanFlapController controller(stepper, events, config);
+
+  bringControllerToReady(controller, stepper, events);
+  static_cast<void>(controller.moveTo(700));
+  stepper.speed_ = 1.0F;
+
+  controller.tick(kNoInputs, 20U);
+  controller.tick(kNoInputs, 36U);
+
+  TEST_ASSERT_EQUAL(
+      static_cast<std::uint16_t>(FaultReason::ValveBlockedDuringFreeCheck),
+      static_cast<std::uint16_t>(controller.lastFaultReason()));
 }
 
 void test_reset_command_in_wait_reset_starts_rehome() {
@@ -936,14 +1107,14 @@ void test_modbus_read_ignores_broadcast_and_rejects_invalid_ranges() {
   TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
 
   uart.clearWritten();
-  std::uint8_t tooManyRegisters[8]{1U, 0x03U, 0U, 0U, 0U, 18U, 0U, 0U};
+  std::uint8_t tooManyRegisters[8]{1U, 0x03U, 0U, 0U, 0U, 24U, 0U, 0U};
   feedModbusFrame(server, tooManyRegisters, 6U);
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x83U, uart.written_[1]);
   TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
 
   uart.clearWritten();
-  std::uint8_t endOverflow[8]{1U, 0x03U, 0U, 16U, 0U, 2U, 0U, 0U};
+  std::uint8_t endOverflow[8]{1U, 0x03U, 0U, 22U, 0U, 2U, 0U, 0U};
   feedModbusFrame(server, endOverflow, 6U);
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x83U, uart.written_[1]);
@@ -993,6 +1164,150 @@ void test_modbus_reads_complete_loxone_register_block() {
                            responseUint16(uart, 19U));
   TEST_ASSERT_EQUAL_UINT16(controller.safePositionPermille(),
                            responseUint16(uart, 35U));
+}
+
+void test_modbus_reads_release_diagnostic_registers() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.speed_ = 1.0F;
+  controller.tick(DigitalInputs{true, false, false}, 20U);
+
+  std::uint8_t frame[8]{1U, 0x03U, 0U, 17U, 0U, 6U, 0U, 0U};
+  feedModbusFrame(server, frame, 6U);
+
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(12U, uart.written_[2]);
+  TEST_ASSERT_EQUAL_UINT16(
+      static_cast<std::uint16_t>(FaultReason::UnexpectedMinSwitch),
+      responseUint16(uart, 3U));
+  TEST_ASSERT_EQUAL_UINT16(1U, responseUint16(uart, 5U));
+  TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 7U));
+  TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 9U));
+  TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 11U));
+  TEST_ASSERT_EQUAL_UINT16(2U, responseUint16(uart, 13U));
+}
+
+void test_modbus_rejects_writes_to_release_diagnostic_registers() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  std::uint8_t frame[8]{1U, 0x06U, 0U, 17U, 0U, 1U, 0U, 0U};
+  feedModbusFrame(server, frame, 6U);
+
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x86U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
+}
+
+void test_modbus_rejects_multiple_writes_to_release_diagnostic_registers() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  std::uint8_t frame[11]{1U, 0x10U, 0U, 17U, 0U, 1U,
+                         2U, 0U,    1U, 0U, 0U};
+  feedModbusFrame(server, frame, 9U);
+
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x90U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
+}
+
+void test_modbus_reads_full_release_register_block() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  std::uint8_t frame[8]{1U, 0x03U, 0U, 0U, 0U, 23U, 0U, 0U};
+  feedModbusFrame(server, frame, 6U);
+
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(46U, uart.written_[2]);
+}
+
+void test_modbus_reads_configured_boot_reason_register() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+  server.setBootReason(BootReason::Watchdog);
+
+  std::uint8_t frame[8]{1U, 0x03U, 0U, 21U, 0U, 1U, 0U, 0U};
+  feedModbusFrame(server, frame, 6U);
+
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(2U, uart.written_[2]);
+  TEST_ASSERT_EQUAL_UINT16(static_cast<std::uint16_t>(BootReason::Watchdog),
+                           responseUint16(uart, 3U));
+}
+
+void test_modbus_rejects_read_past_release_register_block() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  std::uint8_t frame[8]{1U, 0x03U, 0U, 22U, 0U, 2U, 0U, 0U};
+  feedModbusFrame(server, frame, 6U);
+
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x83U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
+}
+
+void test_fault_and_diag_text_commands_report_fault_snapshot() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.speed_ = 1.0F;
+  controller.tick(DigitalInputs{true, false, false}, 20U);
+
+  events.clear();
+  controller.handleCommand("FAULT?");
+  TEST_ASSERT_EQUAL(EventId::FaultReported, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(
+      static_cast<std::int32_t>(FaultReason::UnexpectedMinSwitch),
+      events.last().first);
+  TEST_ASSERT_EQUAL_INT32(1, events.last().second);
+
+  events.clear();
+  controller.handleCommand("DIAG?");
+  TEST_ASSERT_EQUAL(EventId::DiagnosticsReported, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(
+      static_cast<std::int32_t>(FaultReason::UnexpectedMinSwitch),
+      events.last().first);
+  TEST_ASSERT_EQUAL_INT32(1, events.last().second);
+}
+
+void test_service_selftest_command_reports_without_moving_motor() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  controller.handleCommand("SELFTEST?");
+
+  TEST_ASSERT_TRUE(events.contains(EventId::SelfTestReported));
+  TEST_ASSERT_EQUAL_INT32(0, stepper.target_);
+  TEST_ASSERT_FALSE(stepper.enabled_);
 }
 
 void test_modbus_write_target_permille_moves_when_ready() {
@@ -1303,6 +1618,41 @@ void test_tmc_driver_accepts_datasheet_read_reply_master_address() {
   TEST_ASSERT_TRUE(driver.pollStallGuard());
 }
 
+void test_tmc_poll_reports_communication_error_without_response() {
+  FakeUart uart;
+  FakeDelay delay;
+  CapturingEvents events;
+  Tmc2209Driver driver(uart, delay, events);
+
+  const Tmc2209PollResult result = driver.pollStallGuardStatus();
+
+  TEST_ASSERT_EQUAL(Tmc2209PollResult::CommunicationError, result);
+}
+
+void test_tmc_poll_reports_not_stalled_above_threshold() {
+  FakeUart uart;
+  FakeDelay delay;
+  CapturingEvents events;
+  Tmc2209Driver driver(uart, delay, events);
+  queueTmcResponse(uart, 0x41U, 0x000003FFUL);
+
+  const Tmc2209PollResult result = driver.pollStallGuardStatus();
+
+  TEST_ASSERT_EQUAL(Tmc2209PollResult::NotStalled, result);
+}
+
+void test_tmc_verify_communication_requires_valid_readback() {
+  FakeUart uart;
+  FakeDelay delay;
+  CapturingEvents events;
+  Tmc2209Driver driver(uart, delay, events);
+
+  TEST_ASSERT_FALSE(driver.verifyCommunication());
+
+  queueTmcResponse(uart, 0x00U, 0x000000C0UL);
+  TEST_ASSERT_TRUE(driver.verifyCommunication());
+}
+
 }  // namespace
 
 void setUp() {}
@@ -1317,14 +1667,21 @@ int main(int argc, char** argv) {
   RUN_TEST(test_persistent_settings_load_defaults_from_blank_storage);
   RUN_TEST(test_persistent_settings_save_and_reload_valid_settings);
   RUN_TEST(test_persistent_settings_reject_corrupt_or_out_of_range_data);
+  RUN_TEST(test_persistent_settings_loads_newest_valid_record);
+  RUN_TEST(test_persistent_settings_falls_back_to_previous_slot_after_corruption);
+  RUN_TEST(test_persistent_settings_survives_target_slot_write_failure);
   RUN_TEST(test_homing_sequence_sets_range_and_midpoint);
+  RUN_TEST(test_input_debouncer_requires_stable_switch_state);
+  RUN_TEST(test_both_endstops_active_at_boot_enters_fault);
   RUN_TEST(test_homing_moves_to_configured_safe_position);
   RUN_TEST(test_safe_position_commands_validate_and_report_permille);
   RUN_TEST(test_homing_uses_stallguard_as_min_endstop_redundancy);
   RUN_TEST(test_homing_uses_stallguard_as_max_endstop_redundancy);
   RUN_TEST(test_invalid_homing_range_enters_fault_state);
   RUN_TEST(test_homing_min_fails_when_switch_is_not_reached_within_travel);
+  RUN_TEST(test_fault_reason_records_homing_min_timeout);
   RUN_TEST(test_homing_max_fails_when_switch_is_not_reached_within_travel);
+  RUN_TEST(test_fault_reason_records_unexpected_switch_direction);
   RUN_TEST(test_reset_timeout_is_exact_and_wraparound_safe);
   RUN_TEST(test_serial_goto_clamps_edges_and_rejects_bad_numbers);
   RUN_TEST(test_soft_endstop_configuration_handles_clamps_and_invalid_ranges);
@@ -1334,6 +1691,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_home_command_after_fault_does_not_bypass_disabled_driver);
   RUN_TEST(test_move_starts_and_passes_valve_free_check);
   RUN_TEST(test_move_free_check_faults_when_valve_is_blocked);
+  RUN_TEST(test_ready_move_faults_when_position_does_not_progress);
+  RUN_TEST(test_free_check_times_out_before_required_travel);
   RUN_TEST(test_reset_command_in_wait_reset_starts_rehome);
   RUN_TEST(test_refresh_machine_command_rehomes_from_fault_without_mcu_reset);
   RUN_TEST(test_refresh_machine_command_rehomes_when_addressed);
@@ -1346,6 +1705,14 @@ int main(int argc, char** argv) {
   RUN_TEST(test_modbus_read_ignores_broadcast_and_rejects_invalid_ranges);
   RUN_TEST(test_modbus_reads_status_and_permille_registers);
   RUN_TEST(test_modbus_reads_complete_loxone_register_block);
+  RUN_TEST(test_modbus_reads_release_diagnostic_registers);
+  RUN_TEST(test_modbus_rejects_writes_to_release_diagnostic_registers);
+  RUN_TEST(test_modbus_rejects_multiple_writes_to_release_diagnostic_registers);
+  RUN_TEST(test_modbus_reads_full_release_register_block);
+  RUN_TEST(test_modbus_reads_configured_boot_reason_register);
+  RUN_TEST(test_modbus_rejects_read_past_release_register_block);
+  RUN_TEST(test_fault_and_diag_text_commands_report_fault_snapshot);
+  RUN_TEST(test_service_selftest_command_reports_without_moving_motor);
   RUN_TEST(test_modbus_write_target_permille_moves_when_ready);
   RUN_TEST(test_modbus_broadcast_write_is_ignored_for_home_safety);
   RUN_TEST(test_modbus_safe_position_register_validates_and_updates);
@@ -1359,5 +1726,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_modbus_write_multiple_rejects_command_mixed_with_target);
   RUN_TEST(test_tmc_driver_initializes_and_polls_stall_status);
   RUN_TEST(test_tmc_driver_accepts_datasheet_read_reply_master_address);
+  RUN_TEST(test_tmc_poll_reports_communication_error_without_response);
+  RUN_TEST(test_tmc_poll_reports_not_stalled_above_threshold);
+  RUN_TEST(test_tmc_verify_communication_requires_valid_readback);
   return UNITY_END();
 }

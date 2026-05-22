@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "FaultReason.h"
+
 namespace luefterklappe {
 
 enum class ControllerState : std::uint8_t {
@@ -55,7 +57,10 @@ enum class EventId : std::uint8_t {
   AutoRehomeTimeout,
   StallDetected,
   TmcInitializationStarted,
-  TmcConfigured
+  TmcConfigured,
+  FaultReported,
+  DiagnosticsReported,
+  SelfTestReported
 };
 
 struct Event {
@@ -63,6 +68,9 @@ struct Event {
   std::int32_t first;
   std::int32_t second;
   bool flag;
+  std::int32_t third{0};
+  std::int32_t fourth{0};
+  std::int32_t fifth{0};
 };
 
 class EventSink {
@@ -100,6 +108,9 @@ struct ControllerConfig {
   float acceleration;
   std::uint16_t safePositionPermille;
   std::int32_t freeCheckSteps;
+  std::uint32_t freeCheckTimeoutMs;
+  std::uint32_t motionNoProgressTimeoutMs;
+  std::int32_t motionProgressMinSteps;
 };
 
 struct SoftEndstopRange {
@@ -115,7 +126,10 @@ constexpr ControllerConfig kDefaultControllerConfig{
     200.0F,
     1000.0F,
     1000U,
-    20L};
+    20L,
+    2000UL,
+    3000UL,
+    2L};
 
 class FanFlapController {
  public:
@@ -136,12 +150,15 @@ class FanFlapController {
   std::int32_t softMaxPosition() const;
   bool softEndstopsEnabled() const;
   std::uint16_t safePositionPermille() const;
+  FaultReason lastFaultReason() const;
+  std::uint16_t faultCount() const;
 
   bool requestMoveTo(std::int32_t position, std::int32_t& acceptedPosition);
   bool setSoftEndstopsEnabled(bool enabled);
   bool setSoftEndstops(SoftEndstopRange range);
   bool setSafePositionPermille(std::uint16_t permille);
   std::int32_t moveTo(std::int32_t position);
+  void reportExternalFault(FaultReason reason);
 
  private:
   struct TextView {
@@ -151,13 +168,14 @@ class FanFlapController {
   };
 
   void emit(EventId eventId, std::int32_t first = 0, std::int32_t second = 0,
-            bool flag = false);
-  void handleInitState();
+            bool flag = false, std::int32_t third = 0,
+            std::int32_t fourth = 0, std::int32_t fifth = 0);
+  void handleInitState(const DigitalInputs& inputs);
   void handleHomingMinState(const DigitalInputs& inputs, std::uint32_t nowMs);
   void handleHomingMinSettlingState(std::uint32_t nowMs);
   void handleHomingMaxState(const DigitalInputs& inputs, std::uint32_t nowMs);
   void handleHomingMaxSettlingState(std::uint32_t nowMs);
-  void handleReadyState(const DigitalInputs& inputs);
+  void handleReadyState(const DigitalInputs& inputs, std::uint32_t nowMs);
   void handleErrorDetectedState(std::uint32_t nowMs);
   void handleWaitResetState(std::uint32_t nowMs);
   void handleAutoRehomeState();
@@ -167,7 +185,7 @@ class FanFlapController {
   void startHomingMax();
   void resetMotor();
   void refreshMachine();
-  void enterError();
+  void enterError(FaultReason reason);
   bool requireReady();
   bool homingMinTravelExceeded() const;
   bool homingMaxTravelExceeded() const;
@@ -178,12 +196,15 @@ class FanFlapController {
   void handleSoftEndstopsCommand(const TextView& argument);
   void handleDeviceIdCommand(const TextView& argument);
   void handleSafePositionCommand(const TextView& argument);
-  bool hasUnexpectedSwitch(const DigitalInputs& inputs) const;
+  FaultReason unexpectedSwitchReason(const DigitalInputs& inputs) const;
   bool canMoveWithoutClamp(std::int32_t position) const;
   std::int32_t homingTravelSteps() const;
+  std::int32_t motionProgressMinSteps() const;
   std::int32_t positionFromPermille(std::uint16_t permille) const;
+  void beginMotionSupervision();
+  void updateMotionSupervision(std::uint32_t nowMs);
   void beginValveFreeCheck();
-  void updateValveFreeCheck();
+  void updateValveFreeCheck(std::uint32_t nowMs);
 
   static TextView trim(const char* text);
   static TextView trim(const TextView& text);
@@ -213,9 +234,15 @@ class FanFlapController {
   std::int32_t softMinPosition_;
   std::int32_t softMaxPosition_;
   std::int32_t freeCheckStartPosition_;
+  std::int32_t lastProgressPosition_;
+  std::uint32_t lastProgressMs_;
+  std::uint32_t freeCheckStartMs_;
   std::uint16_t safePositionPermille_;
+  FaultReason lastFaultReason_;
+  std::uint16_t faultCount_;
   bool softEndstopsEnabled_;
   bool valveFreeCheckActive_;
+  bool motionSupervisionActive_;
 };
 
 }  // namespace luefterklappe

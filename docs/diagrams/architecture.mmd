@@ -25,14 +25,14 @@ flowchart TB
     StepperHal["AccelStepper HAL<br/>STEP/DIR/ENABLE"]
     InputHal["GPIO inputs<br/>MIN/MAX endstops"]
     LedHal["Builtin status LED<br/>homing, ready, fault"]
-    FlashHal["FlashIAP settings<br/>last flash sector"]
+    FlashHal["FlashIAP settings<br/>last two flash sectors"]
   end
 
   subgraph Core["MCU-independent core: lib/Luefterklappe/src"]
-    Controller["FanFlapController<br/>state machine, homing, faults"]
+    Controller["FanFlapController<br/>state machine, debounce, homing, faults"]
     Modbus["ModbusRtuServer<br/>CRC16, address filter, registers"]
     Tmc["Tmc2209Driver<br/>UART datagrams, CRC, StallGuard"]
-    Settings["PersistentSettings<br/>device ID + safe position, CRC"]
+    Settings["PersistentSettings<br/>journaled device ID + safe position, CRC"]
     Ports["IoPorts interfaces<br/>StepperPort, UartPort, DelayPort, EventSink"]
   end
 
@@ -46,7 +46,7 @@ flowchart TB
 
   subgraph Quality["Quality and agent guardrails"]
     HardGate["tools/run_hard_checks.ps1<br/>all-functions gate"]
-    FirmwareTests["Firmware native tests<br/>45 cases"]
+    FirmwareTests["Firmware native tests<br/>65 cases"]
     ConfigTests["Configurator xUnit tests<br/>61 cases + Cobertura"]
     StaticChecks["clang-tidy, cppcheck, MISRA path<br/>markdownlint, Razor, LSP logs"]
     AgentHooks["tools/agent-hooks<br/>repo and subagent policy smoke tests"]

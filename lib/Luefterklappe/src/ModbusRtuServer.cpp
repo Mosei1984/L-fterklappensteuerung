@@ -5,18 +5,28 @@
 namespace luefterklappe {
 namespace {
 
-constexpr std::uint16_t kRegisterCount = 17U;
+constexpr std::uint16_t kRegisterCount = 23U;
 constexpr std::uint16_t kMaxReadRegisters = kRegisterCount;
 constexpr std::size_t kMaxWriteRegisters = kRegisterCount;
 constexpr std::uint16_t kReadyFlag = 0x0001U;
 constexpr std::uint16_t kFaultFlag = 0x0002U;
 constexpr std::uint16_t kSoftEndstopsFlag = 0x0004U;
 constexpr std::uint16_t kMaxPermille = 1000U;
+constexpr std::uint16_t kSettingsStatusOk = 0U;
+constexpr std::uint16_t kTmcHealthUnknown = 0U;
+constexpr std::uint16_t kFirmwareProtocolVersion = 2U;
 
 bool isFaultState(const ControllerState state) {
   return (state == ControllerState::ErrorDetected) ||
          (state == ControllerState::WaitReset) ||
          (state == ControllerState::AutoRehome);
+}
+
+bool registerRangeIsValid(const std::uint16_t startAddress,
+                          const std::uint16_t quantity) {
+  return (quantity > 0U) && (quantity <= kRegisterCount) &&
+         (startAddress < kRegisterCount) &&
+         (quantity <= (kRegisterCount - startAddress));
 }
 
 }  // namespace
@@ -26,7 +36,8 @@ ModbusRtuServer::ModbusRtuServer(FanFlapController& controller, UartPort& uart)
       uart_(uart),
       buffer_{},
       length_(0U),
-      expectedLength_(0U) {}
+      expectedLength_(0U),
+      bootReason_(BootReason::Unknown) {}
 
 void ModbusRtuServer::handleByte(const std::uint8_t value) {
   if (length_ >= kMaxFrameSize) {
@@ -49,6 +60,10 @@ void ModbusRtuServer::reset() {
 }
 
 bool ModbusRtuServer::isReceiving() const { return length_ > 0U; }
+
+void ModbusRtuServer::setBootReason(const BootReason bootReason) {
+  bootReason_ = bootReason;
+}
 
 std::uint16_t ModbusRtuServer::crc16(const std::uint8_t* const data,
                                      const std::size_t lengthWithoutCrc) {
@@ -133,8 +148,8 @@ void ModbusRtuServer::handleReadHoldingRegisters() {
     return;
   }
 
-  if ((quantity == 0U) || (quantity > kMaxReadRegisters) ||
-      ((startAddress + quantity) > kRegisterCount)) {
+  if ((quantity > kMaxReadRegisters) ||
+      !registerRangeIsValid(startAddress, quantity)) {
     sendException(ExceptionResponse{buffer_[1], kIllegalDataAddress});
     return;
   }
@@ -179,12 +194,13 @@ void ModbusRtuServer::handleWriteMultipleRegisters() {
   // cppcheck-suppress misra-c2012-12.3
   std::array<RegisterWrite, kMaxWriteRegisters> writes{};
 
-  if ((quantity == 0U) || ((quantity * 2U) != byteCount) ||
-      ((startAddress + quantity) > kRegisterCount)) {
-    sendException(ExceptionResponse{
-        buffer_[1], ((startAddress + quantity) > kRegisterCount)
-                       ? kIllegalDataAddress
-                       : kIllegalDataValue});
+  const bool rangeIsValid = registerRangeIsValid(startAddress, quantity);
+  if (!rangeIsValid || (quantity > kMaxWriteRegisters) ||
+      ((quantity * 2U) != byteCount)) {
+    const std::uint8_t exceptionCode =
+        (!rangeIsValid && (quantity != 0U)) ? kIllegalDataAddress
+                                            : kIllegalDataValue;
+    sendException(ExceptionResponse{buffer_[1], exceptionCode});
     return;
   }
 
@@ -315,6 +331,12 @@ std::uint8_t ModbusRtuServer::validateRegisterWrites(
       case ModbusRegister::MaxPositionHigh:
       case ModbusRegister::MaxPositionLow:
       case ModbusRegister::CurrentPermille:
+      case ModbusRegister::LastFaultReason:
+      case ModbusRegister::FaultCount:
+      case ModbusRegister::SettingsStatus:
+      case ModbusRegister::TmcHealth:
+      case ModbusRegister::BootReason:
+      case ModbusRegister::FirmwareProtocolVersion:
         break;
     }
   }
@@ -387,6 +409,12 @@ std::uint8_t ModbusRtuServer::validateRegisterWrite(
     case ModbusRegister::MaxPositionHigh:
     case ModbusRegister::MaxPositionLow:
     case ModbusRegister::CurrentPermille:
+    case ModbusRegister::LastFaultReason:
+    case ModbusRegister::FaultCount:
+    case ModbusRegister::SettingsStatus:
+    case ModbusRegister::TmcHealth:
+    case ModbusRegister::BootReason:
+    case ModbusRegister::FirmwareProtocolVersion:
       return kIllegalDataAddress;
   }
 
@@ -474,6 +502,12 @@ bool ModbusRtuServer::applyRegisterWrites(const RegisterWrite* const writes,
       case ModbusRegister::MaxPositionHigh:
       case ModbusRegister::MaxPositionLow:
       case ModbusRegister::CurrentPermille:
+      case ModbusRegister::LastFaultReason:
+      case ModbusRegister::FaultCount:
+      case ModbusRegister::SettingsStatus:
+      case ModbusRegister::TmcHealth:
+      case ModbusRegister::BootReason:
+      case ModbusRegister::FirmwareProtocolVersion:
         return false;
     }
   }
@@ -560,6 +594,12 @@ bool ModbusRtuServer::writeRegister(const RegisterWrite write) {
     case ModbusRegister::MaxPositionHigh:
     case ModbusRegister::MaxPositionLow:
     case ModbusRegister::CurrentPermille:
+    case ModbusRegister::LastFaultReason:
+    case ModbusRegister::FaultCount:
+    case ModbusRegister::SettingsStatus:
+    case ModbusRegister::TmcHealth:
+    case ModbusRegister::BootReason:
+    case ModbusRegister::FirmwareProtocolVersion:
       return false;
   }
 
@@ -633,6 +673,24 @@ bool ModbusRtuServer::readRegister(const std::uint16_t address,
       return true;
     case ModbusRegister::SafePositionPermille:
       value = controller_.safePositionPermille();
+      return true;
+    case ModbusRegister::LastFaultReason:
+      value = static_cast<std::uint16_t>(controller_.lastFaultReason());
+      return true;
+    case ModbusRegister::FaultCount:
+      value = controller_.faultCount();
+      return true;
+    case ModbusRegister::SettingsStatus:
+      value = kSettingsStatusOk;
+      return true;
+    case ModbusRegister::TmcHealth:
+      value = kTmcHealthUnknown;
+      return true;
+    case ModbusRegister::BootReason:
+      value = static_cast<std::uint16_t>(bootReason_);
+      return true;
+    case ModbusRegister::FirmwareProtocolVersion:
+      value = kFirmwareProtocolVersion;
       return true;
   }
 

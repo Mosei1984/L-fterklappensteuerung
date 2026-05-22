@@ -9,6 +9,13 @@
 
 namespace luefterklappe {
 
+enum class BootReason : std::uint16_t {
+  Unknown = 0U,
+  PowerOn = 1U,
+  Watchdog = 2U,
+  SoftwareReset = 3U
+};
+
 enum class ModbusRegister : std::uint16_t {
   Command = 0U,
   TargetPositionHigh = 1U,
@@ -26,7 +33,13 @@ enum class ModbusRegister : std::uint16_t {
   MaxPositionLow = 13U,
   TargetPermille = 14U,
   CurrentPermille = 15U,
-  SafePositionPermille = 16U
+  SafePositionPermille = 16U,
+  LastFaultReason = 17U,
+  FaultCount = 18U,
+  SettingsStatus = 19U,
+  TmcHealth = 20U,
+  BootReason = 21U,
+  FirmwareProtocolVersion = 22U
 };
 
 enum class ModbusCommand : std::uint16_t {
@@ -45,6 +58,7 @@ class ModbusRtuServer {
   void handleByte(std::uint8_t value);
   void reset();
   bool isReceiving() const;
+  void setBootReason(BootReason bootReason);
 
   static std::uint16_t crc16(const std::uint8_t* data,
                              std::size_t lengthWithoutCrc);
@@ -104,6 +118,7 @@ class ModbusRtuServer {
   std::uint8_t buffer_[kMaxFrameSize];
   std::size_t length_;
   std::size_t expectedLength_;
+  BootReason bootReason_;
 };
 
 }  // namespace luefterklappe

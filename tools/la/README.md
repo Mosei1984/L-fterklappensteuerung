@@ -78,6 +78,17 @@ powershell -ExecutionPolicy Bypass -File .\tools\la\capture_luefterklappe.ps1 -P
 python .\tools\la\analyze_la_capture.py --self-test
 ```
 
+Firmware-Release-Abnahme bindet diesen Pfad optional ein:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -SerialPort COMx -ExpectedDeviceId 1 -RequireLogicAnalyzer
+```
+
+Ohne `-RequireLogicAnalyzer` prueft der Release-Check weiterhin Hard-Gate,
+UF2-Artefakt, SHA256, Service-Textdiagnose und Modbus-Diagnoseregister. Mit
+`-RequireLogicAnalyzer` muss zusaetzlich `capture_luefterklappe.ps1` ohne
+`FAIL:`-Zeile durchlaufen.
+
 ## Harte Testmatrix
 
 1. **Boot und Homing**
@@ -120,6 +131,11 @@ python .\tools\la\analyze_la_capture.py --self-test
    - TMC RX kurz trennen oder Treiber nicht versorgen.
    - Erwartung: TMC-TX bleibt gueltig dekodierbar; fehlende RX-Frames werden als
      Diagnose sichtbar, nicht als falsche gueltige Responses.
+
+9. **Release-Diagnoseregister**
+   - Master liest Register `0..22` und danach `17..22`.
+   - Erwartung: gueltige CRC-Frames, read-only Diagnosebereich, Schreibversuche
+     auf `17..22` liefern Illegal-Address-Exceptions.
 
 ## Offline-Analyse
 

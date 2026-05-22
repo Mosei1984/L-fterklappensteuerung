@@ -32,6 +32,12 @@ constexpr Tmc2209Config kDefaultTmc2209Config{
     10UL,
     2UL};
 
+enum class Tmc2209PollResult : std::uint8_t {
+  NotStalled,
+  Stalled,
+  CommunicationError
+};
+
 class Tmc2209Driver {
  public:
   Tmc2209Driver(UartPort& uart, DelayPort& delay, EventSink& events,
@@ -40,7 +46,9 @@ class Tmc2209Driver {
   void initialize();
   void sendCommand(std::uint8_t address, std::uint8_t value);
   bool readRegister(std::uint8_t registerAddress, std::uint32_t& value);
+  Tmc2209PollResult pollStallGuardStatus();
   bool pollStallGuard();
+  bool verifyCommunication();
 
  private:
   struct RegisterWrite {

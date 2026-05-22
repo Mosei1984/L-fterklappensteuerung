@@ -5,6 +5,9 @@
 namespace luefterklappe {
 namespace {
 
+constexpr std::uint32_t kTimerNotStarted =
+    std::numeric_limits<std::uint32_t>::max();
+
 bool isSpace(const char value) {
   return (value == ' ') || (value == '\t') || (value == '\n') ||
          (value == '\r') || (value == '\v') || (value == '\f');
@@ -30,11 +33,17 @@ FanFlapController::FanFlapController(StepperPort& motor, EventSink& events,
       softMinPosition_(0),
       softMaxPosition_(0),
       freeCheckStartPosition_(0),
+      lastProgressPosition_(0),
+      lastProgressMs_(kTimerNotStarted),
+      freeCheckStartMs_(kTimerNotStarted),
       safePositionPermille_(config.safePositionPermille <= 1000U
                                 ? config.safePositionPermille
                                 : 1000U),
+      lastFaultReason_(FaultReason::None),
+      faultCount_(0U),
       softEndstopsEnabled_(true),
-      valveFreeCheckActive_(false) {}
+      valveFreeCheckActive_(false),
+      motionSupervisionActive_(false) {}
 
 void FanFlapController::begin() {
   state_ = ControllerState::Init;
@@ -46,7 +55,12 @@ void FanFlapController::begin() {
   softMaxPosition_ = 0;
   softEndstopsEnabled_ = true;
   valveFreeCheckActive_ = false;
+  motionSupervisionActive_ = false;
   freeCheckStartPosition_ = 0;
+  lastProgressPosition_ = 0;
+  lastProgressMs_ = kTimerNotStarted;
+  freeCheckStartMs_ = kTimerNotStarted;
+  lastFaultReason_ = FaultReason::None;
 
   motor_.setDriverEnabled(true);
   motor_.setMaxSpeed(config_.normalMaxSpeed);
@@ -58,7 +72,7 @@ void FanFlapController::tick(const DigitalInputs& inputs,
                              const std::uint32_t nowMs) {
   switch (state_) {
     case ControllerState::Init:
-      handleInitState();
+      handleInitState(inputs);
       break;
     case ControllerState::HomingMin:
       handleHomingMinState(inputs, nowMs);
@@ -73,7 +87,7 @@ void FanFlapController::tick(const DigitalInputs& inputs,
       handleHomingMaxSettlingState(nowMs);
       break;
     case ControllerState::Ready:
-      handleReadyState(inputs);
+      handleReadyState(inputs, nowMs);
       break;
     case ControllerState::ErrorDetected:
       handleErrorDetectedState(nowMs);
@@ -141,6 +155,12 @@ bool FanFlapController::softEndstopsEnabled() const {
 std::uint16_t FanFlapController::safePositionPermille() const {
   return safePositionPermille_;
 }
+
+FaultReason FanFlapController::lastFaultReason() const {
+  return lastFaultReason_;
+}
+
+std::uint16_t FanFlapController::faultCount() const { return faultCount_; }
 
 bool FanFlapController::requestMoveTo(const std::int32_t position,
                                       std::int32_t& acceptedPosition) {
@@ -215,13 +235,21 @@ std::int32_t FanFlapController::moveTo(const std::int32_t position) {
 
   motor_.moveTo(acceptedPosition);
   targetPosition_ = acceptedPosition;
+  beginMotionSupervision();
   beginValveFreeCheck();
   return acceptedPosition;
 }
 
+void FanFlapController::reportExternalFault(const FaultReason reason) {
+  enterError(reason);
+}
+
 void FanFlapController::emit(const EventId eventId, const std::int32_t first,
-                             const std::int32_t second, const bool flag) {
-  const Event event{eventId, first, second, flag};
+                             const std::int32_t second, const bool flag,
+                             const std::int32_t third,
+                             const std::int32_t fourth,
+                             const std::int32_t fifth) {
+  const Event event{eventId, first, second, flag, third, fourth, fifth};
   events_.onEvent(event);
 }
 
@@ -257,6 +285,16 @@ void FanFlapController::handleCommandText(const TextView& text) {
     emit(EventId::SafePositionReported, safePositionPermille_);
   } else if (readArgument(text, "SAFE", argument)) {
     handleSafePositionCommand(argument);
+  } else if (equals(text, "FAULT?")) {
+    emit(EventId::FaultReported,
+         static_cast<std::int32_t>(lastFaultReason_), faultCount_);
+  } else if (equals(text, "DIAG?")) {
+    emit(EventId::DiagnosticsReported,
+         static_cast<std::int32_t>(lastFaultReason_), faultCount_);
+  } else if (equals(text, "SELFTEST?")) {
+    emit(EventId::SelfTestReported, static_cast<std::int32_t>(state_),
+         static_cast<std::int32_t>(lastFaultReason_), softEndstopsEnabled_,
+         faultCount_, deviceId_, safePositionPermille_);
   } else {
     emit(EventId::UnknownCommand);
   }
@@ -271,7 +309,14 @@ void FanFlapController::handleResetCommand() {
   }
 }
 
-void FanFlapController::handleInitState() { startHomingMin(); }
+void FanFlapController::handleInitState(const DigitalInputs& inputs) {
+  if (inputs.minSwitchActive && inputs.maxSwitchActive) {
+    enterError(FaultReason::BothEndstopsActiveAtBoot);
+    return;
+  }
+
+  startHomingMin();
+}
 
 void FanFlapController::handleHomingMinState(const DigitalInputs& inputs,
                                              const std::uint32_t nowMs) {
@@ -289,7 +334,7 @@ void FanFlapController::handleHomingMinState(const DigitalInputs& inputs,
 
     if (homingMinTravelExceeded()) {
       emit(EventId::HomingRangeInvalid, currentPosition());
-      enterError();
+      enterError(FaultReason::HomingMinTravelExceeded);
     }
     return;
   }
@@ -320,7 +365,7 @@ void FanFlapController::handleHomingMaxState(const DigitalInputs& inputs,
 
       if (maxPosition_ <= 0) {
         emit(EventId::HomingRangeInvalid, maxPosition_);
-        enterError();
+        enterError(FaultReason::HomingRangeInvalid);
         return;
       }
 
@@ -334,7 +379,7 @@ void FanFlapController::handleHomingMaxState(const DigitalInputs& inputs,
 
     if (homingMaxTravelExceeded()) {
       emit(EventId::HomingRangeInvalid, currentPosition());
-      enterError();
+      enterError(FaultReason::HomingMaxTravelExceeded);
     }
     return;
   }
@@ -345,7 +390,7 @@ void FanFlapController::handleHomingMaxState(const DigitalInputs& inputs,
 
   if (maxPosition_ <= 0) {
     emit(EventId::HomingRangeInvalid, maxPosition_);
-    enterError();
+    enterError(FaultReason::HomingRangeInvalid);
     return;
   }
 
@@ -368,16 +413,25 @@ void FanFlapController::handleHomingMaxSettlingState(
   }
 }
 
-void FanFlapController::handleReadyState(const DigitalInputs& inputs) {
+void FanFlapController::handleReadyState(const DigitalInputs& inputs,
+                                         const std::uint32_t nowMs) {
   motor_.run();
 
   if (inputs.stallGuardActive) {
     emit(EventId::StallDetected);
-    enterError();
-  } else if (hasUnexpectedSwitch(inputs)) {
-    enterError();
+    enterError(FaultReason::StallGuardDuringMove);
   } else {
-    updateValveFreeCheck();
+    const FaultReason unexpectedReason = unexpectedSwitchReason(inputs);
+    if (unexpectedReason != FaultReason::None) {
+      enterError(unexpectedReason);
+      return;
+    }
+
+    updateValveFreeCheck(nowMs);
+    if (state_ != ControllerState::Ready) {
+      return;
+    }
+    updateMotionSupervision(nowMs);
   }
 }
 
@@ -403,6 +457,7 @@ void FanFlapController::handleAutoRehomeState() {
 
 void FanFlapController::startHomingMin() {
   valveFreeCheckActive_ = false;
+  motionSupervisionActive_ = false;
   motor_.setMaxSpeed(config_.homingMaxSpeed);
   motor_.moveTo(-homingTravelSteps());
   state_ = ControllerState::HomingMin;
@@ -411,6 +466,7 @@ void FanFlapController::startHomingMin() {
 
 void FanFlapController::startHomingMax() {
   valveFreeCheckActive_ = false;
+  motionSupervisionActive_ = false;
   motor_.setMaxSpeed(config_.homingMaxSpeed);
   motor_.moveTo(homingTravelSteps());
   state_ = ControllerState::HomingMax;
@@ -421,14 +477,20 @@ void FanFlapController::resetMotor() { state_ = ControllerState::AutoRehome; }
 void FanFlapController::refreshMachine() {
   motor_.stop();
   valveFreeCheckActive_ = false;
+  motionSupervisionActive_ = false;
   emit(EventId::MachineRefreshStarted);
   resetMotor();
 }
 
-void FanFlapController::enterError() {
+void FanFlapController::enterError(const FaultReason reason) {
   motor_.stop();
   motor_.setDriverEnabled(false);
   valveFreeCheckActive_ = false;
+  motionSupervisionActive_ = false;
+  lastFaultReason_ = reason;
+  if (faultCount_ < 0xFFFFU) {
+    ++faultCount_;
+  }
   state_ = ControllerState::ErrorDetected;
 }
 
@@ -459,27 +521,73 @@ std::int32_t FanFlapController::positionFromPermille(
       (static_cast<std::int64_t>(maxPosition_) * permille) / 1000LL);
 }
 
+void FanFlapController::beginMotionSupervision() {
+  lastProgressPosition_ = currentPosition();
+  lastProgressMs_ = kTimerNotStarted;
+  motionSupervisionActive_ = targetPosition_ != currentPosition();
+}
+
+void FanFlapController::updateMotionSupervision(const std::uint32_t nowMs) {
+  if (!motionSupervisionActive_) {
+    return;
+  }
+
+  const std::int32_t current = currentPosition();
+  if (current == targetPosition_) {
+    motionSupervisionActive_ = false;
+    return;
+  }
+
+  if (lastProgressMs_ == kTimerNotStarted) {
+    lastProgressPosition_ = current;
+    lastProgressMs_ = nowMs;
+    return;
+  }
+
+  if (absoluteDistance(current, lastProgressPosition_) >=
+      motionProgressMinSteps()) {
+    lastProgressPosition_ = current;
+    lastProgressMs_ = nowMs;
+    return;
+  }
+
+  if (hasElapsed(nowMs, lastProgressMs_, config_.motionNoProgressTimeoutMs)) {
+    enterError(FaultReason::MotionNoProgress);
+  }
+}
+
 void FanFlapController::beginValveFreeCheck() {
   if ((config_.freeCheckSteps <= 0) || (targetPosition_ == currentPosition())) {
     valveFreeCheckActive_ = false;
+    freeCheckStartMs_ = kTimerNotStarted;
     return;
   }
 
   freeCheckStartPosition_ = currentPosition();
+  freeCheckStartMs_ = kTimerNotStarted;
   valveFreeCheckActive_ = true;
   emit(EventId::ValveFreeCheckStarted, freeCheckStartPosition_,
        targetPosition_);
 }
 
-void FanFlapController::updateValveFreeCheck() {
+void FanFlapController::updateValveFreeCheck(const std::uint32_t nowMs) {
   if (!valveFreeCheckActive_) {
     return;
+  }
+
+  if (freeCheckStartMs_ == kTimerNotStarted) {
+    freeCheckStartMs_ = nowMs;
   }
 
   if (absoluteDistance(currentPosition(), freeCheckStartPosition_) >=
       config_.freeCheckSteps) {
     valveFreeCheckActive_ = false;
     emit(EventId::ValveFreeCheckPassed, currentPosition(), targetPosition_);
+    return;
+  }
+
+  if (hasElapsed(nowMs, freeCheckStartMs_, config_.freeCheckTimeoutMs)) {
+    enterError(FaultReason::ValveBlockedDuringFreeCheck);
   }
 }
 
@@ -599,12 +707,19 @@ void FanFlapController::handleSafePositionCommand(const TextView& argument) {
       setSafePositionPermille(static_cast<std::uint16_t>(value)));
 }
 
-bool FanFlapController::hasUnexpectedSwitch(
+FaultReason FanFlapController::unexpectedSwitchReason(
     const DigitalInputs& inputs) const {
   const float currentSpeed = motor_.speed();
 
-  return (inputs.minSwitchActive && (currentSpeed > 0.0F)) ||
-         (inputs.maxSwitchActive && (currentSpeed < 0.0F));
+  if (inputs.minSwitchActive && (currentSpeed > 0.0F)) {
+    return FaultReason::UnexpectedMinSwitch;
+  }
+
+  if (inputs.maxSwitchActive && (currentSpeed < 0.0F)) {
+    return FaultReason::UnexpectedMaxSwitch;
+  }
+
+  return FaultReason::None;
 }
 
 bool FanFlapController::canMoveWithoutClamp(
@@ -622,6 +737,14 @@ std::int32_t FanFlapController::homingTravelSteps() const {
   }
 
   return config_.homingTravelSteps;
+}
+
+std::int32_t FanFlapController::motionProgressMinSteps() const {
+  if (config_.motionProgressMinSteps <= 0) {
+    return 1;
+  }
+
+  return config_.motionProgressMinSteps;
 }
 
 FanFlapController::TextView FanFlapController::trim(const char* const text) {

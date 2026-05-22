@@ -13,13 +13,15 @@ Raspberry-Pi-Pico/Arduino-HAL.
 - Soft-Endstops und Zielpositionen in Steps oder `0..1000` Promille.
 - Safe-Position in Promille; nach gueltigem Homing faehrt die Klappe in diese
   definierte Lueftungsstellung.
-- Fehlerzustand bei unerwartetem Endschalterereignis, Blockade oder StallGuard
-  waehrend normaler Bewegung.
+- Debounced Endschalter und Boot-Plausibilitaet gegen beide gleichzeitig
+  aktive Endlagen.
+- Fehlerzustand mit stabilem Fehlergrund, Fault-Counter, No-Progress-Timeout,
+  TMC-Kommunikationsfehler und StallGuard waehrend normaler Bewegung.
 - Reset-Timeout mit automatischem Re-Homing.
 - TMC2209-UART mit Datagramm-CRC, Konfiguration und StallGuard-Abfrage.
 - Modbus-RTU-Slave fuer Loxone/Home-Automation auf RS485.
-- Geraete-ID `1..247` und Safe-Position werden im Pico-Flash mit CRC
-  persistiert.
+- Geraete-ID `1..247` und Safe-Position werden im Pico-Flash ueber zwei
+  physische Sektoren journalisiert und mit CRC persistiert.
 - Altes adressiertes Textprotokoll als Service-/Debugpfad.
 - Native Unit-Tests mit Fake-Stepper, Fake-UART, Fake-Zeit und Fake-Events.
 - clang-tidy, cppcheck und MISRA-Addon-Checks ueber das Quality-Skript.
@@ -29,6 +31,8 @@ Raspberry-Pi-Pico/Arduino-HAL.
 - Mermaid-Architektur- und Wiring-Diagramme im README und als `docs/diagrams/*.mmd`.
 - Pico-Onboard-LED als Statusanzeige: Homing blinkt langsam, Ready leuchtet,
   Fehler blinkt schnell.
+- Firmware-Acceptance-Skript mit No-Hardware-, Hardware- und optionalem
+  Logic-Analyzer-Modus.
 
 ## Architektur
 
@@ -60,14 +64,14 @@ flowchart TB
     StepperHal["AccelStepper HAL<br/>STEP/DIR/ENABLE"]
     InputHal["GPIO inputs<br/>MIN/MAX endstops"]
     LedHal["Builtin status LED<br/>homing, ready, fault"]
-    FlashHal["FlashIAP settings<br/>last flash sector"]
+    FlashHal["FlashIAP settings<br/>last two flash sectors"]
   end
 
   subgraph Core["MCU-independent core: lib/Luefterklappe/src"]
-    Controller["FanFlapController<br/>state machine, homing, faults"]
+    Controller["FanFlapController<br/>state machine, debounce, homing, faults"]
     Modbus["ModbusRtuServer<br/>CRC16, address filter, registers"]
     Tmc["Tmc2209Driver<br/>UART datagrams, CRC, StallGuard"]
-    Settings["PersistentSettings<br/>device ID + safe position, CRC"]
+    Settings["PersistentSettings<br/>journaled device ID + safe position, CRC"]
     Ports["IoPorts interfaces<br/>StepperPort, UartPort, DelayPort, EventSink"]
   end
 
@@ -81,7 +85,7 @@ flowchart TB
 
   subgraph Quality["Quality and agent guardrails"]
     HardGate["tools/run_hard_checks.ps1<br/>all-functions gate"]
-    FirmwareTests["Firmware native tests<br/>45 cases"]
+    FirmwareTests["Firmware native tests<br/>65 cases"]
     ConfigTests["Configurator xUnit tests<br/>61 cases + Cobertura"]
     StaticChecks["clang-tidy, cppcheck, MISRA path<br/>markdownlint, Razor, LSP logs"]
     AgentHooks["tools/agent-hooks<br/>repo and subagent policy smoke tests"]
@@ -136,13 +140,16 @@ flowchart TB
 | Pfad | Aufgabe |
 | --- | --- |
 | `lib/Luefterklappe/src/IoPorts.h` | MCU-unabhaengige Ports fuer Stepper, UART, Delay und Events |
+| `lib/Luefterklappe/src/FaultReason.h` | Stabile Fehlercodes fuer Modbus, Textdiagnose und Tests |
+| `lib/Luefterklappe/src/InputDebouncer.*` | MCU-unabhaengiges Entprellen und Boot-Sanity fuer Endschalter |
 | `lib/Luefterklappe/src/FanFlapController.*` | State-Machine, Homing, Softlimits, Fehlerbehandlung, Textbefehle |
 | `lib/Luefterklappe/src/Tmc2209Driver.*` | TMC2209-UART-Datagramme, CRC, Konfiguration, StallGuard |
 | `lib/Luefterklappe/src/ModbusRtuServer.*` | Modbus-RTU-Slave, Registermap, CRC16, Exception Responses |
-| `lib/Luefterklappe/src/PersistentSettings.*` | Persistente ID/Safe-Position mit Magic, Version und CRC |
-| `src/main.cpp` | Pico/Arduino-HAL, Pinning, Serial1 RS485, TMC-UART, GPIO |
+| `lib/Luefterklappe/src/PersistentSettings.*` | Persistente ID/Safe-Position mit Dual-Sektor-Journal, Magic, Version und CRC |
+| `src/main.cpp` | Pico/Arduino-HAL, Pinning, Serial1 RS485, TMC-UART, GPIO, Flash, Watchdog und LED |
 | `test/test_controller/test_main.cpp` | Native Unit-Tests fuer Core, Modbus und TMC |
 | `tools/la/` | sigrok-cli Capture, Decode und Offline-Analyse |
+| `tools/firmware_release_check.ps1` | Firmware-Acceptance mit Hard-Gate, UF2-Hash, Serial/Modbus und optionaler LA-Pruefung |
 | `tools/configurator/src/LuefterConfigurator.Desktop` | Windows-Fenster mit WebView2, startet den lokalen Host unsichtbar |
 | `tools/configurator/src/LuefterConfigurator.Host` | ASP.NET-Core/Razor-UI und lokale REST-API |
 | `tools/configurator/src/LuefterConfigurator.Application` | Controller-Scan, Config-State, Befehle, Gateway- und Exportkoordination |
@@ -294,6 +301,12 @@ Konfiguration/Diagnose/StallGuard. Praktische Punkte fuer dieses Modul:
 
 ## Safe-Zustand fuer Wohnraumlueftung
 
+This controller is a comfort/home-automation fan-flap controller for an 80-mm
+pipe valve. It is not a fire damper, smoke damper, CO detector, combustion
+appliance safety device or life-safety product. Smoke alarms, CO alarms,
+combustion-appliance maintenance and building-level ventilation planning remain
+separate requirements.
+
 Normative Quellen fuer Wohnraumlueftung fordern keine pauschale "Klappe zu"-
 Fehlerstellung. Die sicherere Firmware-Annahme ist: Luftwechsel erhalten, aber
 keine Kraft gegen eine Blockade aufbauen. Deshalb gilt:
@@ -360,16 +373,41 @@ Adressen sind 0-basiert, passend fuer Loxone Config.
 | 14 | R/W | Zielposition `0..1000` Promille vom Homing-Weg |
 | 15 | R | Istposition `0..1000` Promille vom Homing-Weg |
 | 16 | R/W | Safe-Position `0..1000` Promille; wird im Flash gespeichert |
+| 17 | R | Letzter Fehlergrund, siehe `FaultReason` |
+| 18 | R | Fault-Counter, saettigt bei `65535` |
+| 19 | R | Letzter Settings-Status: `0` unknown, `1` default, `2` loaded, `3` saved, `4` failed |
+| 20 | R | TMC-Health: `0` unknown, `1` ok, `2` communication error, `3` disabled by build |
+| 21 | R | Boot-Grund: `0` unknown, `1` power-on, `2` watchdog, `3` software reset |
+| 22 | R | Firmware-Protokollversion, aktuell `2` |
+
+`FaultReason`-Werte in Register `17`:
+
+| Wert | Bedeutung |
+| --- | --- |
+| 0 | kein Fehler |
+| 1 | Homing-Bereich ungueltig |
+| 2 | Min-Endschalter beim Homing nicht erreicht |
+| 3 | Max-Endschalter beim Homing nicht erreicht |
+| 4 | unerwarteter Min-Endschalter |
+| 5 | unerwarteter Max-Endschalter |
+| 6 | StallGuard waehrend normaler Bewegung |
+| 7 | Ventil beim Wegfahr-Free-Check blockiert |
+| 8 | Bewegung ohne Positionsfortschritt |
+| 9 | TMC2209-UART-Kommunikation verloren |
+| 10 | Settings konnten nicht geschrieben werden |
+| 11 | beide Endschalter beim Boot aktiv |
+| 12 | Watchdog-Neustart erkannt |
 
 Empfohlen fuer Loxone:
 
 - Register `14` als analoger Aktor `0..1000`.
 - Register `16` als Parameter fuer die Safe-Position verwenden.
-- Register `8`, `9`, `15`, `16` langsam pollen, z. B. alle `2..5 s`.
+- Register `8`, `9`, `15..22` langsam pollen, z. B. alle `2..5 s`.
+- Zielpositions-Schreibbefehle eventgetrieben senden, nicht dauerhaft pollen.
 - Register `0` mit Wert `5` als Fehler-Rehome/Refresh-Machine-Befehl
   vorsehen, damit nach Blockade oder Endschalterfehler kein Pico-Reset noetig
   ist.
-- Register `0..16` koennen in einem Holding-Register-Block gelesen werden,
+- Register `0..22` koennen in einem Holding-Register-Block gelesen werden,
   damit Loxone/Modbus-TCP-Gateways den Zustand konsistent erfassen.
 - Schnelle Bewegung, Endschalter, Softlimits, StallGuard und Fehlerbehandlung
   lokal im Controller lassen.
@@ -400,6 +438,9 @@ adressierte Befehle funktionieren dort ebenfalls.
 | `ID<n> SETID <1..247>` | Alias fuer ID setzen |
 | `ID<n> SAFE?` | Safe-Position in Promille melden |
 | `ID<n> SAFE <0..1000>` | Safe-Position setzen und speichern |
+| `ID<n> FAULT?` | letzten Fehlergrund und Fault-Counter melden |
+| `ID<n> DIAG?` | Diagnose-Snapshot mit Fehlergrund und Fault-Counter melden |
+| `ID<n> SELFTEST?` | nicht-bewegenden Selbsttest mit State, ID, Safe-Position und Endschaltern melden |
 
 Debug-/Eventtexte gehen standardmaessig auf USB `Serial`, nicht auf RS485.
 Damit stoeren Homing-, Fehler- oder TMC-Meldungen keine Modbus-Kommunikation.
@@ -455,6 +496,28 @@ Cobertura-Coverage, MSBuild-/Razor-Binlogs, Markdownlint-Ergebnis,
 VS-Code-C#/Razor/LSP-Log-Snapshots, Test-Explorer-Settings-Pruefung,
 Repo-/Subagent-Hook-Smoke-Tests und den kompletten Firmware-Gate.
 
+Firmware-Release-Abnahme mit Artefakt-Hash:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -NoHardware
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -SerialPort COMx -ExpectedDeviceId 1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -SerialPort COMx -ExpectedDeviceId 1 -RequireLogicAnalyzer
+```
+
+Der No-Hardware-Modus prueft Hard-Gate, Pico-UF2, SHA256 und Doku-Safety. Der
+Hardware-Modus prueft zusaetzlich `DIAG?`, `FAULT?`, `SELFTEST?`, Modbus
+`0..22`, Diagnose-Register `17..22`, Illegal-Address-Exceptions und
+Broadcast-Stille. Mit `-RequireLogicAnalyzer` muss auch die sigrok-Analyse ohne
+`FAIL:`-Zeile laufen.
+
+Release-Artefakte:
+
+```text
+artifacts/release/firmware/firmware.uf2
+artifacts/release/firmware/firmware.uf2.sha256
+artifacts/release/firmware/acceptance-report.md
+```
+
 ### 5. Geraete-ID setzen
 
 Default-ID beim Build setzen:
@@ -471,9 +534,10 @@ Oder zur Laufzeit ueber Modbus Holding-Register `7` bzw. Servicebefehl:
 ID1 SETID 7
 ```
 
-Die Laufzeit-ID wird zusammen mit der Safe-Position im letzten Pico-Flash-
-Sektor gespeichert. Der Datensatz enthaelt Magic, Version und CRC; bei
-ungueltigem oder leerem Speicher werden Defaultwerte benutzt.
+Die Laufzeit-ID wird zusammen mit der Safe-Position in den letzten zwei
+Pico-Flash-Sektoren als Journal gespeichert. Jeder Datensatz enthaelt Magic,
+Version, Generation und CRC; bei ungueltigem oder leerem Speicher werden
+Defaultwerte benutzt.
 
 Safe-Position setzen:
 
@@ -565,10 +629,12 @@ powershell -ExecutionPolicy Bypass -File .\tools\la\capture_luefterklappe.ps1 -P
 
 Der native Testlauf deckt Homing-Timing, `millis()`-Wraparound,
 Reset-Timeout, unerwartete Endschalter, StallGuard-Redundanz beim Homing,
-Wegfahr-Free-Check, Safe-Position, Flash-Persistenz mit CRC,
+Wegfahr-Free-Check, No-Progress-Timeout, Safe-Position,
+Dual-Sektor-Flash-Persistenz mit CRC und Generationsauswahl,
 Soft-Endstop-Clamping, ungueltige serielle Argumente, ID-Adressierung,
 Modbus-RTU-CRC, Fremdadressen, Exception Responses, Promille-Zielregister,
-Service-Bewegungen ohne Soft-Endstops und TMC2209-UART-Frames ab.
+Diagnose-Register `17..22`, Boot-Reason, Service-Selbsttest, Bewegungen ohne
+Soft-Endstops und TMC2209-UART-Frames ab.
 
 ## MCU-Portierung
 

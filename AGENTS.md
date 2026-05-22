@@ -32,7 +32,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\run_quality_checks.ps1
 
 Expected current coverage:
 
-- Firmware native tests: 45 passing tests.
+- Firmware native tests: 65 passing tests.
 - Pico firmware build: `pico` environment succeeds.
 - PlatformIO clang-tidy/cppcheck: native and pico pass.
 - Standalone cppcheck/MISRA addon path runs.
@@ -95,9 +95,28 @@ artifacts/configurator-installer/win-x64/Luefterklappen-Konfigurator-win-x64.zip
   homing and overload/blockage detection during normal movement.
 - Modbus broadcast ID `0` must not execute writes for this home-use controller.
 - Safe position is configurable in `0..1000` permille and persisted with CRC.
+- Persistent device ID and safe position use a two-sector flash journal with
+  generation and CRC validation.
+- Diagnostic Modbus registers `17..22` are read-only and append the stable
+  fault reason, fault count, settings status, TMC health, boot reason and
+  firmware protocol version.
+- Service text diagnostics are `DIAG?`, `FAULT?` and non-moving `SELFTEST?`.
 - `REFRESH` / Modbus command `5` is the preferred recovery after a controller
   fault: it stops, clears the fault path, and rehomes without rebooting the MCU.
   Keep `RESET` for compatibility only.
+
+Run firmware release acceptance before a release handoff:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -NoHardware
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -SerialPort COMx -ExpectedDeviceId 1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -SerialPort COMx -ExpectedDeviceId 1 -RequireLogicAnalyzer
+```
+
+Inspect `artifacts/release/firmware/acceptance-report.md` and
+`artifacts/quality/hard-all-functions/summary.md` before claiming release
+readiness. Full field acceptance still requires assembled motor, TMC2209,
+endstops, RS485 and logic analyzer.
 
 ## Git and generated files
 

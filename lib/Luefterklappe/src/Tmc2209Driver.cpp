@@ -90,14 +90,30 @@ bool Tmc2209Driver::readRegister(const std::uint8_t registerAddress,
   return false;
 }
 
-bool Tmc2209Driver::pollStallGuard() {
+Tmc2209PollResult Tmc2209Driver::pollStallGuardStatus() {
   std::uint32_t stallGuardResult = 0U;
 
   if (!readRegister(config_.stallGuardResultRegister, stallGuardResult)) {
+    return Tmc2209PollResult::CommunicationError;
+  }
+
+  return ((stallGuardResult & 0x3FFUL) <= config_.stallGuardThreshold)
+             ? Tmc2209PollResult::Stalled
+             : Tmc2209PollResult::NotStalled;
+}
+
+bool Tmc2209Driver::pollStallGuard() {
+  return pollStallGuardStatus() == Tmc2209PollResult::Stalled;
+}
+
+bool Tmc2209Driver::verifyCommunication() {
+  std::uint32_t gconfValue = 0U;
+
+  if (!readRegister(config_.gconfRegister, gconfValue)) {
     return false;
   }
 
-  return (stallGuardResult & 0x3FFUL) <= config_.stallGuardThreshold;
+  return (gconfValue & config_.gconfValue) == config_.gconfValue;
 }
 
 std::uint8_t Tmc2209Driver::calculateCrc(const std::uint8_t* const data,
