@@ -12,9 +12,14 @@ if (-not $AcceptEula) {
 }
 
 $sourceRoot = (Resolve-Path $SourceDirectory).Path
-$exePath = Join-Path $sourceRoot 'LuefterConfigurator.Host.exe'
-if (-not (Test-Path $exePath)) {
-  throw "LuefterConfigurator.Host.exe wurde in '$sourceRoot' nicht gefunden. Erst publish-portable.ps1 oder build-windows-installer.ps1 ausfuehren."
+$appExePath = Join-Path $sourceRoot 'Luefterklappen-Konfigurator.exe'
+$hostExePath = Join-Path $sourceRoot 'LuefterConfigurator.Host.exe'
+if (-not (Test-Path $appExePath)) {
+  throw "Luefterklappen-Konfigurator.exe wurde in '$sourceRoot' nicht gefunden. Erst build-windows-installer.ps1 ausfuehren."
+}
+
+if (-not (Test-Path $hostExePath)) {
+  throw "LuefterConfigurator.Host.exe wurde in '$sourceRoot' nicht gefunden. Erst build-windows-installer.ps1 ausfuehren."
 }
 
 $installRoot = [System.IO.Path]::GetFullPath($InstallDirectory)
@@ -26,7 +31,8 @@ if (-not $installRoot.StartsWith($allowedRoot, [System.StringComparison]::Ordina
 New-Item -ItemType Directory -Force -Path $installRoot | Out-Null
 Copy-Item -Path (Join-Path $sourceRoot '*') -Destination $installRoot -Recurse -Force
 
-$installedExe = Join-Path $installRoot 'LuefterConfigurator.Host.exe'
+$installedExe = Join-Path $installRoot 'Luefterklappen-Konfigurator.exe'
+$installedHostExe = Join-Path $installRoot 'LuefterConfigurator.Host.exe'
 $iconPath = Join-Path $installRoot 'Luefterklappen-Konfigurator.ico'
 $uninstallScript = Join-Path $installRoot 'uninstall-windows.ps1'
 $statusPath = Join-Path $installRoot 'INSTALL_STATUS.json'
@@ -73,6 +79,7 @@ $status = [ordered]@{
   installDirectory = $installRoot
   sourceDirectory = $sourceRoot
   executable = $installedExe
+  hostExecutable = $installedHostExe
   icon = $iconPath
   url = 'http://127.0.0.1:5184'
   startMenuShortcut = $shortcutPath

@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 
 $sourceRoot = (Resolve-Path $SourceDirectory).Path
 $installScript = Join-Path $sourceRoot 'install-windows.ps1'
-$exePath = Join-Path $sourceRoot 'LuefterConfigurator.Host.exe'
+$exePath = Join-Path $sourceRoot 'Luefterklappen-Konfigurator.exe'
 $eulaPath = Join-Path $sourceRoot 'EULA.md'
 
 if ($ValidateOnly) {
@@ -220,7 +220,7 @@ $nextButton.Add_Click({
 
       & $installScript @installArguments
 
-      $script:installedExe = Join-Path ([System.IO.Path]::GetFullPath($installPathText.Text)) 'LuefterConfigurator.Host.exe'
+      $script:installedExe = Join-Path ([System.IO.Path]::GetFullPath($installPathText.Text)) 'Luefterklappen-Konfigurator.exe'
       if ($launchAfterInstallCheck.Checked -and (Test-Path $script:installedExe)) {
         Start-Process -FilePath $script:installedExe -WorkingDirectory (Split-Path $script:installedExe -Parent) | Out-Null
       }

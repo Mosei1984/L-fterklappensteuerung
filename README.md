@@ -94,14 +94,15 @@ flowchart TB
 | `src/main.cpp` | Pico/Arduino-HAL, Pinning, Serial1 RS485, TMC-UART, GPIO |
 | `test/test_controller/test_main.cpp` | Native Unit-Tests fuer Core, Modbus und TMC |
 | `tools/la/` | sigrok-cli Capture, Decode und Offline-Analyse |
-| `tools/configurator/` | Lokaler C# Service mit Browser-UI fuer Setup, Diagnose und Exporte |
+| `tools/configurator/` | Windows-Service-Tool mit eingebetteter UI fuer Setup, Diagnose und Exporte |
 | `docs/diagrams/` | Mermaid-Quellen fuer Architektur und Wiring |
 
 ## Konfigurator
 
-Der PC-Konfigurator ist das primaere Service-Tool fuer die Inbetriebnahme des
-80-mm-Rohrventils. Er startet lokal auf `http://127.0.0.1:5184` und fuehrt
-normale Nutzer zuerst durch den **Loxone Setup Wizard**:
+Der PC-Konfigurator ist das primaere Windows-Service-Tool fuer die
+Inbetriebnahme des 80-mm-Rohrventils. Normale Nutzer starten
+`Luefterklappen-Konfigurator.exe`; die App oeffnet ein eigenes Windows-Fenster
+und fuehrt zuerst durch den **Loxone Setup Wizard**:
 
 1. Loxone/Modbus-TCP-Daten vorbereiten.
 2. Pico ueber USB erkennen.
@@ -111,10 +112,11 @@ normale Nutzer zuerst durch den **Loxone Setup Wizard**:
 6. Abschlusscheck fuer Statusregister und Gateway durchlaufen.
 
 USB Host Test, Rohbefehle und Gateway-Diagnose bleiben in einer getrennten
-Expertentest-Spalte. Die Windows-Paketierung erzeugt ein sichtbares App-Icon
-fuer EXE, Startmenue, Installationsordner und Browser-Favicon.
+Expertentest-Spalte. Der lokale Host laeuft intern im Hintergrund; direkter
+Browserzugriff auf `http://127.0.0.1:5184` ist nur fuer Entwicklung und
+Expertentests vorgesehen.
 
-Start aus dem Quellbaum:
+Expert-Host aus dem Quellbaum starten:
 
 ```powershell
 $env:DOTNET_ROOT='C:\Users\mosei\.dotnet8'

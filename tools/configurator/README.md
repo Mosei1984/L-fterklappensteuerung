@@ -1,7 +1,8 @@
 # Lueftersteuerung Konfigurator
 
-Lokaler C# Service mit Browser-UI fuer die Luefterklappensteuerung eines
-80-mm-Rohrventils.
+Windows-Service-Tool fuer die Luefterklappensteuerung eines 80-mm-Rohrventils.
+Die normale Bedienung laeuft in `Luefterklappen-Konfigurator.exe` als eigenes
+Windows-Fenster; der lokale Host wird intern im Hintergrund gestartet.
 
 ## Voraussetzungen
 
@@ -17,7 +18,7 @@ $env:DOTNET_CLI_HOME=(Resolve-Path ..\..).Path
 & 'C:\Users\mosei\.dotnet8\dotnet.exe' --info
 ```
 
-## Start
+## Expert-Host Start
 
 ```powershell
 $env:DOTNET_ROOT='C:\Users\mosei\.dotnet8'
@@ -25,14 +26,16 @@ $env:DOTNET_CLI_HOME=(Resolve-Path ..\..).Path
 & 'C:\Users\mosei\.dotnet8\dotnet.exe' run --project .\src\LuefterConfigurator.Host
 ```
 
-Oeffnen: <http://127.0.0.1:5184>
+Direktes Oeffnen von <http://127.0.0.1:5184> ist nur fuer Entwicklung,
+Host-Smoke-Tests und Experten gedacht. Normale Nutzer starten die Windows-App.
 
 Die Startseite priorisiert den Loxone Setup Wizard. USB Host Test, Gateway-Test
 und Rohdiagnose liegen separat im Expertentest-Bereich.
 
 ## Lokale API
 
-Die Browser-UI ruft dieselben Endpunkte auf, die auch in den Integrationstests laufen:
+Die eingebettete Windows-UI ruft dieselben Endpunkte auf, die auch in den
+Integrationstests laufen:
 
 - `GET /api/controllers/state`
 - `POST /api/controllers/scan`
@@ -116,13 +119,21 @@ Ausgabe:
 artifacts/configurator-portable/win-x64
 ```
 
-Start in diesem Ordner:
+Normaler Start in diesem Ordner:
+
+```powershell
+.\Luefterklappen-Konfigurator.exe
+```
+
+Normale Nutzer starten die Windows-App `Luefterklappen-Konfigurator.exe`; sie
+oeffnet ein eigenes Fenster und startet den lokalen Host unsichtbar im
+Hintergrund.
+
+Expertenstart des internen Hosts in diesem Ordner:
 
 ```powershell
 .\LuefterConfigurator.Host.exe
 ```
-
-Danach Browser oeffnen: <http://127.0.0.1:5184>
 
 ## Windows Installation
 
@@ -156,7 +167,7 @@ Silent-Installation fuer Experten:
 powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -AcceptEula
 ```
 
-Die Installation legt die Anwendung unter `%LOCALAPPDATA%\Programs\LuefterConfigurator` ab,
+Die Installation legt die Windows-App unter `%LOCALAPPDATA%\Programs\LuefterConfigurator` ab,
 schreibt `INSTALL_STATUS.json`, erstellt Startmenueeintraege fuer Start und
 Deinstallation und registriert den Uninstaller unter
 `HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall`.
@@ -201,4 +212,4 @@ powershell -ExecutionPolicy Bypass -File ..\..\tools\run_quality_checks.ps1
 - UF2 Firmware Update Workflow
 - JSON Profilimport
 - Loxone/Home Assistant/openHAB/Modbus Exporte
-- lokale Browser-UI mit Health- und Configurator-API
+- eingebettete Windows-UI mit Health- und Configurator-API

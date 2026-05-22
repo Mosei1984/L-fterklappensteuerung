@@ -35,6 +35,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{CB712732
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LuefterConfigurator.Tests", "tests\LuefterConfigurator.Tests\LuefterConfigurator.Tests.csproj", "{DB988197-D590-4DBC-BF85-D9F14F2B8C72}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LuefterConfigurator.Desktop", "src\LuefterConfigurator.Desktop\LuefterConfigurator.Desktop.csproj", "{C20B8F44-5514-4086-A045-D6A11E2E7A85}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -100,6 +102,10 @@ Global
 		{DB988197-D590-4DBC-BF85-D9F14F2B8C72}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DB988197-D590-4DBC-BF85-D9F14F2B8C72}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DB988197-D590-4DBC-BF85-D9F14F2B8C72}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C20B8F44-5514-4086-A045-D6A11E2E7A85}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C20B8F44-5514-4086-A045-D6A11E2E7A85}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C20B8F44-5514-4086-A045-D6A11E2E7A85}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C20B8F44-5514-4086-A045-D6A11E2E7A85}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{DB9644E6-0A3B-486B-BEF9-998E00BFD74A} = {9559C601-AA20-4BD1-AE55-E10510DBDE44}
@@ -116,5 +122,6 @@ Global
 		{C6D77E04-C402-4C63-992A-0970E8BC4279} = {9559C601-AA20-4BD1-AE55-E10510DBDE44}
 		{51D4CB67-01C3-411D-8AC5-DAC7D3C73BFF} = {9559C601-AA20-4BD1-AE55-E10510DBDE44}
 		{DB988197-D590-4DBC-BF85-D9F14F2B8C72} = {CB712732-B714-4DCF-A2BB-1A3194DFE915}
+		{C20B8F44-5514-4086-A045-D6A11E2E7A85} = {9559C601-AA20-4BD1-AE55-E10510DBDE44}
 	EndGlobalSection
 EndGlobal

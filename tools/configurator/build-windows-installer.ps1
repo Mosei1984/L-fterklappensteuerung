@@ -27,6 +27,11 @@ if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }
 
+$desktopAppExe = Join-Path $portableOutput 'Luefterklappen-Konfigurator.exe'
+if (-not (Test-Path $desktopAppExe)) {
+  throw "Desktop-App wurde nicht erzeugt: $desktopAppExe"
+}
+
 Copy-Item -LiteralPath $installScript -Destination (Join-Path $portableOutput 'install-windows.ps1') -Force
 Copy-Item -LiteralPath $setupScript -Destination (Join-Path $portableOutput 'setup-windows.ps1') -Force
 Copy-Item -LiteralPath $setupLauncher -Destination (Join-Path $portableOutput 'Luefterklappen-Konfigurator-Setup.cmd') -Force
