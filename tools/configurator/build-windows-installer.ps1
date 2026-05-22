@@ -14,6 +14,8 @@ $portableOutput = Join-Path $OutputDirectory 'payload'
 $installerZip = Join-Path $OutputDirectory "Luefterklappen-Konfigurator-$Runtime.zip"
 $publishScript = Join-Path $PSScriptRoot 'publish-portable.ps1'
 $installScript = Join-Path $PSScriptRoot 'install-windows.ps1'
+$setupScript = Join-Path $PSScriptRoot 'setup-windows.ps1'
+$setupLauncher = Join-Path $PSScriptRoot 'Luefterklappen-Konfigurator-Setup.cmd'
 $uninstallScript = Join-Path $PSScriptRoot 'uninstall-windows.ps1'
 $eula = Join-Path $PSScriptRoot 'EULA.md'
 $icon = Join-Path $PSScriptRoot 'src\LuefterConfigurator.Host\Assets\logo\luefterklappen.ico'
@@ -26,22 +28,26 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Copy-Item -LiteralPath $installScript -Destination (Join-Path $portableOutput 'install-windows.ps1') -Force
+Copy-Item -LiteralPath $setupScript -Destination (Join-Path $portableOutput 'setup-windows.ps1') -Force
+Copy-Item -LiteralPath $setupLauncher -Destination (Join-Path $portableOutput 'Luefterklappen-Konfigurator-Setup.cmd') -Force
 Copy-Item -LiteralPath $uninstallScript -Destination (Join-Path $portableOutput 'uninstall-windows.ps1') -Force
 Copy-Item -LiteralPath $eula -Destination (Join-Path $portableOutput 'EULA.md') -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination (Join-Path $portableOutput 'README.md') -Force
 Copy-Item -LiteralPath $icon -Destination (Join-Path $portableOutput 'Luefterklappen-Konfigurator.ico') -Force
 
 $installReadme = @"
-Luefterklappen Konfigurator Windows Installer
+Luefterklappen Konfigurator Windows Setup
 
-1. EULA.md lesen.
-2. PowerShell im entpackten Ordner oeffnen.
-3. Installieren:
-   powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -AcceptEula
+1. ZIP entpacken.
+2. Luefterklappen-Konfigurator-Setup.cmd doppelklicken.
+3. Im Setup-Wizard EULA bestaetigen, Zielordner waehlen und Installieren.
 4. Starten:
    Start Menu > Luefterklappen Konfigurator
 5. Deinstallieren:
-   powershell -ExecutionPolicy Bypass -File .\uninstall-windows.ps1
+   Windows Apps & Features oder Start Menu > Luefterklappen Konfigurator deinstallieren
+
+Silent Install fuer Experten:
+   powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -AcceptEula
 
 Installationsstatus: INSTALL_STATUS.json
 "@
@@ -56,4 +62,4 @@ Compress-Archive -Path (Join-Path $portableOutput '*') -DestinationPath $install
 
 Write-Host "Installer bundle: $installerZip"
 Write-Host "Payload: $portableOutput"
-Write-Host "Install: .\install-windows.ps1 -AcceptEula"
+Write-Host "Install: .\Luefterklappen-Konfigurator-Setup.cmd"

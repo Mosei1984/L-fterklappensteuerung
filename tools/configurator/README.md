@@ -138,16 +138,28 @@ Ausgabe:
 artifacts/configurator-installer/win-x64
 ```
 
-Installation aus dem Payload-Ordner:
+Installation aus dem Payload-Ordner fuer normale Nutzer:
 
 ```powershell
 cd .\artifacts\configurator-installer\win-x64\payload
+.\Luefterklappen-Konfigurator-Setup.cmd
+```
+
+Der Setup-Wizard zeigt die EULA, fragt den Installationsordner ab, bietet eine
+Desktop-Verknuepfung an und kann den Konfigurator direkt nach der Installation
+starten. Der Zielordner ist ohne Adminrechte standardmaessig
+`%LOCALAPPDATA%\Programs\LuefterConfigurator`.
+
+Silent-Installation fuer Experten:
+
+```powershell
 powershell -ExecutionPolicy Bypass -File .\install-windows.ps1 -AcceptEula
 ```
 
 Die Installation legt die Anwendung unter `%LOCALAPPDATA%\Programs\LuefterConfigurator` ab,
-schreibt `INSTALL_STATUS.json`, erstellt einen Startmenueintrag und registriert den
-Uninstaller unter `HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall`.
+schreibt `INSTALL_STATUS.json`, erstellt Startmenueeintraege fuer Start und
+Deinstallation und registriert den Uninstaller unter
+`HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall`.
 Das Paket enthaelt `Luefterklappen-Konfigurator.ico`; dieses Icon wird fuer den
 Startmenueintrag, den Apps-und-Features-Eintrag und den Installationsordner
 mitkopiert. Die Browser-UI nutzt die passenden SVG/PNG-Logoassets aus
@@ -158,6 +170,9 @@ Deinstallation:
 ```powershell
 powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\LuefterConfigurator\uninstall-windows.ps1"
 ```
+
+Ohne `-Quiet -Force` fragt der Uninstaller interaktiv nach Bestaetigung. Aus
+Windows Apps & Features wird derselbe interaktive Deinstallationspfad genutzt.
 
 ## Test
 

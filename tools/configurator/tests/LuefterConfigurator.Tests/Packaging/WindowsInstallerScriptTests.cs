@@ -9,29 +9,46 @@ public sealed class WindowsInstallerScriptTests
         var eulaPath = Path.Combine(root, "tools", "configurator", "EULA.md");
         var buildScriptPath = Path.Combine(root, "tools", "configurator", "build-windows-installer.ps1");
         var installScriptPath = Path.Combine(root, "tools", "configurator", "install-windows.ps1");
+        var setupScriptPath = Path.Combine(root, "tools", "configurator", "setup-windows.ps1");
+        var setupLauncherPath = Path.Combine(root, "tools", "configurator", "Luefterklappen-Konfigurator-Setup.cmd");
         var uninstallScriptPath = Path.Combine(root, "tools", "configurator", "uninstall-windows.ps1");
 
         Assert.True(File.Exists(eulaPath), "EULA.md is required for an end-user installable package.");
         Assert.True(File.Exists(buildScriptPath), "build-windows-installer.ps1 is required.");
         Assert.True(File.Exists(installScriptPath), "install-windows.ps1 is required.");
+        Assert.True(File.Exists(setupScriptPath), "setup-windows.ps1 is required for the interactive Windows setup wizard.");
+        Assert.True(File.Exists(setupLauncherPath), "A clearly named setup launcher is required for end users.");
         Assert.True(File.Exists(uninstallScriptPath), "uninstall-windows.ps1 is required.");
 
         var eula = File.ReadAllText(eulaPath);
         var buildScript = File.ReadAllText(buildScriptPath);
         var installScript = File.ReadAllText(installScriptPath);
+        var setupScript = File.ReadAllText(setupScriptPath);
+        var setupLauncher = File.ReadAllText(setupLauncherPath);
         var uninstallScript = File.ReadAllText(uninstallScriptPath);
 
         Assert.Contains("Endbenutzer", eula, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Luefterklappen Konfigurator", eula, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("publish-portable.ps1", buildScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("install-windows.ps1", buildScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("setup-windows.ps1", buildScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Luefterklappen-Konfigurator-Setup.cmd", buildScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("uninstall-windows.ps1", buildScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("EULA.md", buildScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("INSTALL_STATUS.json", installScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(@"HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall", installScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Start Menu", installScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CreateDesktopShortcut", installScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Luefterklappen Konfigurator deinstallieren.lnk", installScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("EstimatedSize", installScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("System.Windows.Forms", setupScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Ich akzeptiere", setupScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Installieren", setupScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("setup-windows.ps1", setupLauncher, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("INSTALL_STATUS.json", uninstallScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(@"HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall", uninstallScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("System.Windows.Forms.MessageBox", uninstallScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Force", uninstallScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Remove-Item", uninstallScript, StringComparison.OrdinalIgnoreCase);
     }
 

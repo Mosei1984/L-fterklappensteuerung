@@ -134,6 +134,12 @@ Das Paket liegt danach unter:
 artifacts/configurator-installer/win-x64/Luefterklappen-Konfigurator-win-x64.zip
 ```
 
+Nach dem Entpacken startet `Luefterklappen-Konfigurator-Setup.cmd` den
+interaktiven Windows-Setup-Wizard mit EULA-Bestaetigung, Installationspfad,
+Desktop-Verknuepfung und optionalem Start nach der Installation. Die
+Deinstallation laeuft ueber Apps & Features oder den Startmenueeintrag
+`Luefterklappen Konfigurator deinstallieren`.
+
 ## Komplettes Wiring
 
 ```mermaid
