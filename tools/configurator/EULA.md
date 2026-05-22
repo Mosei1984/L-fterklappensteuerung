@@ -4,7 +4,7 @@
 
 Diese Endbenutzer-Lizenzvereinbarung gilt fuer die lokale Windows-Anwendung
 `Luefterklappen Konfigurator` fuer ein 80-mm-Rohrventil, bestehend aus C#
-Service, lokaler Browser-UI, Installationsskripten, Dokumentation und
+Service, eingebetteter lokaler UI, Installationsskripten, Dokumentation und
 mitgelieferten Profilen.
 
 ## Nutzung

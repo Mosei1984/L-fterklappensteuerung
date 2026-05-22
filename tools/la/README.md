@@ -11,6 +11,12 @@ Stepper-Timing werden aus einem sigrok-Capture dekodiert und offline validiert.
 - Python 3 fuer `analyze_la_capture.py`
 - Gemeinsame Masse zwischen Pico, RS485-Modul, TMC-Treiber und Analyzer
 
+Kanonische Wiring-Quelle ist `README.md` zusammen mit
+`docs/diagrams/wiring.mmd`. Der aktuelle Aufbau nutzt CH0 des
+Waveshare-Pico-2CH-RS485 fuer Modbus RTU. CH1 bleibt elektrisch als
+Durchschleif-/Reservekanal frei und wird in den Standard-Captures nicht
+dekodiert.
+
 ## Verkabelung
 
 | LA | Signal | Pico / Funktion | Erwartung |

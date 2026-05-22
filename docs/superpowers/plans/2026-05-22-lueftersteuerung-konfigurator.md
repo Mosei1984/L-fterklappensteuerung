@@ -1487,7 +1487,7 @@ Create `tools/configurator/README.md`:
 ````markdown
 # Lueftersteuerung Konfigurator
 
-Lokaler C# Service mit Browser-UI fuer die Luefterklappensteuerung.
+Lokales C# Service-Tool mit Windows-App und eingebetteter UI fuer die Luefterklappensteuerung.
 
 ## Start
 

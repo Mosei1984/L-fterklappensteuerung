@@ -1,31 +1,34 @@
 flowchart LR
   Pico["Raspberry Pi Pico<br/>Arduino-Pico firmware"]
-  Rs485["Waveshare Pico-2CH-RS485<br/>CH0 only"]
+  Usb["USB host / PC<br/>service serial 115200<br/>UF2 BOOTSEL drive"]
+  Led["Builtin LED<br/>slow blink homing<br/>on ready<br/>fast blink fault"]
+  Rs485["Waveshare Pico-2CH-RS485<br/>CH0 used for Modbus RTU<br/>CH1 unused/reserved"]
   Loxone["Loxone Modbus Extension<br/>RS485 master"]
-  Tmc["TMC2209 driver module"]
-  Motor["Stepper motor"]
+  Tmc["TMC2209 driver module<br/>UART mode"]
+  Motor["Stepper motor<br/>80 mm pipe valve"]
   Min["MIN endstop<br/>NO switch to GND"]
   Max["MAX endstop<br/>NO switch to GND"]
   Psu["Motor PSU<br/>according to driver and motor"]
   La["Logic analyzer<br/>optional"]
-  Usb["USB host<br/>debug serial 115200"]
 
-  Pico -- "GP0 Serial1 TX" --> Rs485
-  Rs485 -- "GP1 Serial1 RX" --> Pico
-  Rs485 <-->|"A/B twisted pair + GND<br/>38400 8N1"| Loxone
+  Usb <-->|"USB CDC debug/text<br/>and UF2 flashing"| Pico
+  Led -. "LED_BUILTIN / GP25" .-> Pico
+
+  Pico -- "GP0 Serial1 TX<br/>Modbus replies" --> Rs485
+  Rs485 -- "GP1 Serial1 RX<br/>Modbus requests" --> Pico
+  Rs485 <-->|"CH0 A/B twisted pair + GND<br/>38400 8N1"| Loxone
 
   Pico -- "GP2 STEP" --> Tmc
   Pico -- "GP3 DIR" --> Tmc
   Pico -- "GP7 ENABLE active low" --> Tmc
-  Pico -- "GP8 UART TX" --> Tmc
-  Tmc -- "GP9 UART RX" --> Pico
+  Pico -- "GP8 UART TX<br/>Pico to TMC PDN_UART" --> Tmc
+  Tmc -- "GP9 UART RX<br/>TMC to Pico UART" --> Pico
   Pico -- "3V3 VIO + GND" --> Tmc
   Psu -- "VMOT + GND" --> Tmc
   Tmc -- "A1/A2/B1/B2" --> Motor
 
   Min -- "GP5 input pullup<br/>active low" --> Pico
   Max -- "GP6 input pullup<br/>active low" --> Pico
-  Usb <-->|"USB CDC"| Pico
 
   La -. "D0: GP0 RS485 TX" .-> Pico
   La -. "D1: GP1 RS485 RX" .-> Pico

@@ -5,9 +5,11 @@ Datum: 2026-05-22
 ## Ziel
 
 Der erste Konfigurator ist ein lokales C# PC-Service-Tool fuer die
-Luefterklappensteuerung eines 80-mm-Rohrventils. Er soll den angeschlossenen
-Controller finden, konfigurieren, testen und Integrationsdateien fuer
-Home-Automation-Systeme erzeugen.
+Luefterklappensteuerung eines 80-mm-Rohrventils. Die normale Bedienung laeuft
+als Windows-App mit eigenem Fenster; intern startet sie einen lokalen
+ASP.NET-Core/Razor-Host. Das Tool soll den angeschlossenen Controller finden,
+konfigurieren, testen und Integrationsdateien fuer Home-Automation-Systeme
+erzeugen.
 
 Die Architektur muss spaeter weitere Controller-Typen tragen. Die
 Luefterklappe ist deshalb ein erstes Geraeteprofil, nicht fest in die App
@@ -25,7 +27,8 @@ eingebacken.
 
 ## Release-1-Funktionen
 
-- Lokaler ASP.NET-Core-Service mit Browser-UI auf `localhost`.
+- Windows-App `Luefterklappen-Konfigurator.exe` mit WinForms/WebView2-Shell.
+- Lokaler ASP.NET-Core/Razor-Service mit REST-API auf `127.0.0.1:5184`.
 - Serielle Verbindung zur Pico-Firmware ueber USB CDC Textprotokoll.
 - Modbus-RTU-Testpfad ueber USB-RS485-Adapter.
 - Mehrere Controller gleichzeitig erkennen und getrennt verwalten.
@@ -56,8 +59,8 @@ eingebacken.
 - Firmware-Update per UF2:
   - lokale UF2-Datei auswaehlen
   - Pico-Bootloader-Laufwerk erkennen
-  - optionalen Bootloader-Reset ueber Serial versuchen, falls Board/Firmware
-    das unterstuetzt
+  - Benutzer zum manuellen BOOTSEL/UF2-Modus fuehren, wenn kein Laufwerk
+    erkannt wird
   - UF2-Datei kopieren und nach Neustart Verbindung/Settings pruefen
 - Controller-Profilimport aus JSON mit Schema-Validierung.
 - Loxone Setup Wizard als primaerer Nutzerpfad.
@@ -66,57 +69,69 @@ eingebacken.
 
 ## Architektur
 
-Der Konfigurator besteht aus einem lokalen Service, einer Browser-UI und klaren
-Modulen fuer Controller-Profile, Transporte, Protokolle und
+Der Konfigurator besteht aus einer Windows-Desktop-Shell, einem lokalen Host
+und klaren Modulen fuer Controller-Profile, Transporte, Protokolle und
 Home-Automation-Adapter.
 
 ```text
-Browser UI
-  -> Local HTTP API / SignalR
-    -> Application Services
-      -> Controller Profile Registry
-      -> Transport Registry
-      -> Protocol Registry
-      -> Integration Adapter Registry
-      -> Gateway Registry
-      -> Local Configuration Store
-        -> USB CDC / RS485 / MQTT / Modbus TCP / UF2 Filesystem
+Windows setup package
+  -> Luefterklappen-Konfigurator.exe
+    -> WinForms/WebView2 desktop shell
+      -> Local ASP.NET Core host / Razor UI / REST API
+        -> ConfiguratorService and session services
+          -> FanFlap profile / JSON profile import
+          -> Serial discovery / USB text / Modbus RTU helpers
+          -> UF2 firmware check and flash
+          -> Modbus TCP frame and gateway core
+          -> Export adapters: Loxone, Home Assistant, openHAB, Modbus docs
+          -> App_Data exports and data-protection keys
 ```
 
-### Vorgeschlagene Dateistruktur
+### Aktuelle Dateistruktur
 
 ```text
 tools/configurator/
   LuefterConfigurator.sln
+  build-windows-installer.ps1
+  install-windows.ps1
+  uninstall-windows.ps1
+  publish-portable.ps1
+  setup-windows.ps1
   src/
+    LuefterConfigurator.Desktop/
+      Program.cs
+      MainForm.cs
     LuefterConfigurator.Host/
       Program.cs
       appsettings.json
+      Pages/
+      wwwroot/
     LuefterConfigurator.Domain/
       ControllerProfile.cs
-      ControllerState.cs
       SettingDefinition.cs
       RegisterDefinition.cs
-      AdapterContracts.cs
+      ControllerIdentity.cs
+      ExportContracts.cs
+      ValidationResult.cs
     LuefterConfigurator.Application/
-      DeviceDiscoveryService.cs
-      ConfigurationService.cs
-      DiagnosticsService.cs
-      ExportService.cs
-      FirmwareUpdateService.cs
+      ConfiguratorService.cs
+      ConfiguratorModels.cs
       MultiControllerSessionService.cs
-      ProfileImportService.cs
-      ModbusTcpGatewayService.cs
     LuefterConfigurator.Infrastructure.Serial/
-      UsbSerialTransport.cs
-      ModbusRtuSerialTransport.cs
+      ISerialConnection.cs
+      SystemSerialControllerDiscovery.cs
+      UsbTextTransport.cs
+      ModbusRtuTransport.cs
+      ModbusRtuCrc.cs
     LuefterConfigurator.Infrastructure.ModbusTcp/
+      ModbusTcpFrame.cs
       ModbusTcpGateway.cs
     LuefterConfigurator.Infrastructure.Mqtt/
-      MqttLiveTestAdapter.cs
+      placeholder project for later live MQTT integration
     LuefterConfigurator.Infrastructure.Firmware/
-      PicoUf2FirmwareUpdater.cs
       Uf2DriveDetector.cs
+      Uf2FirmwareStatusProvider.cs
+      PicoUf2FirmwareUpdater.cs
     LuefterConfigurator.Adapters.Loxone/
       LoxoneExportAdapter.cs
     LuefterConfigurator.Adapters.HomeAssistant/
@@ -128,7 +143,6 @@ tools/configurator/
     LuefterConfigurator.Profiles.FanFlap/
       FanFlapProfile.cs
       FanFlapTextProtocol.cs
-      FanFlapModbusProtocol.cs
       FanFlapModbusMap.cs
     LuefterConfigurator.Profiles.Json/
       JsonProfileImporter.cs
@@ -160,22 +174,20 @@ externen Prozessaufrufe. Der Import akzeptiert nur Profile, die gegen
 
 ### Transporte
 
-`IControllerTransport` kapselt die physische Verbindung:
+Die erste Implementierung nutzt kleine, testbare Infrastrukturbausteine statt
+eines grossen Transport-Frameworks. `IControllerDiscovery` scannt Controller,
+`ISerialConnection` kapselt byteweise Serial-I/O, `UsbTextTransport` verarbeitet
+Textantworten, und `ModbusRtuTransport`/`ModbusRtuCrc` bauen RTU-Frames.
 
-- Ports auflisten.
-- Verbindung oeffnen/schliessen.
-- Request/Response senden.
-- Timeout, Retry und Fehlerklassifikation liefern.
+Fuer spaetere Controller-Typen bleibt der Schnitt ueber Profile, Services und
+kleine Infrastructure-Ports erweiterbar.
 
 Release 1:
 
-- `UsbSerialTransport` fuer USB CDC und Textprotokoll.
-- `ModbusRtuSerialTransport` fuer USB-RS485-Adapter.
+- `SystemSerialControllerDiscovery` fuer passiven USB-Scan.
+- `UsbTextTransport` fuer Service-Textprotokoll.
+- `ModbusRtuTransport` und `ModbusRtuCrc` fuer RTU-Testpfade.
 - Sitzungsverwaltung fuer mehrere gleichzeitige Controller.
-
-Spaeter:
-
-- Weitere Netzwerktransporte ausserhalb des lokalen Modbus-TCP-Gateways.
 
 ### Protokolle
 
@@ -191,8 +203,9 @@ Spaeter:
 
 Release 1:
 
-- `FanFlapTextProtocol` als primaerer Servicepfad.
-- `FanFlapModbusProtocol` fuer Modbus-RTU-Test und Integrationsvalidierung.
+- `FanFlapTextProtocol` als Parser/Formatter fuer den Servicepfad.
+- `FanFlapModbusMap` als gemeinsame Registerquelle fuer Modbus-Exporte und
+  Integrationsvalidierung.
 
 ### Home-Automation-Adapter
 
@@ -207,7 +220,6 @@ Release 1:
 
 - `LoxoneExportAdapter`.
 - `HomeAssistantMqttDiscoveryAdapter`.
-- `MqttLiveTestAdapter`.
 - `OpenHabExportAdapter`.
 - `ModbusRegisterExportAdapter`.
 
@@ -235,7 +247,6 @@ Release-1-Regeln:
 UF2-Flashing ist ein eigenes Modul mit klarer Bedienfuehrung:
 
 - UF2-Datei lokal auswaehlen.
-- Optionalen Bootloader-Reset ueber Serial versuchen.
 - Wenn kein Bootloader-Laufwerk erscheint, Benutzer zum manuellen BOOTSEL-Start
   fuehren.
 - UF2-Datei auf das erkannte Laufwerk kopieren.
@@ -248,9 +259,9 @@ Dateiendung, Lesbarkeit, Zielprofil und Benutzerbestaetigung.
 
 ## UI-Konzept
 
-Die UI ist eine lokale Arbeitsoberflaeche, keine Landingpage. Release 1
-priorisiert den Loxone Setup Wizard fuer das 80-mm-Rohrventil; Host- und
-Rohprotokolltests bleiben als Expertentest getrennt.
+Die UI ist eine lokale Arbeitsoberflaeche im Windows-Fenster, keine Landingpage.
+Release 1 priorisiert den Loxone Setup Wizard fuer das 80-mm-Rohrventil; Host-
+und Rohprotokolltests bleiben als Expertentest getrennt.
 
 Hauptbereiche:
 
@@ -278,8 +289,8 @@ Schreiben alte und neue Werte.
 
 ## Datenfluss
 
-1. Benutzer startet den lokalen Service.
-2. Browser-UI oeffnet `http://localhost:<port>`.
+1. Benutzer startet die Windows-App.
+2. Desktop-Shell startet den lokalen Host und laedt ihn in WebView2.
 3. UI fordert Portliste an.
 4. Benutzer verbindet einen oder mehrere Controller ueber USB CDC oder RS485.
 5. Service legt pro Controller eine eigene Session an.
@@ -353,7 +364,8 @@ Schreiben alte und neue Werte.
 - Zwei oder mehr Fake-Controller fuer Session- und ID-Konflikttests.
 - Fake-Modbus-TCP-Client gegen lokalen Gateway-Server.
 - Temp-Laufwerk/Temp-Verzeichnis fuer UF2-Updatepfad.
-- Fake-MQTT-Broker oder testbarer MQTT-Client-Stub.
+- MQTT-Live-Test bleibt spaetere Erweiterung; Release 1 prueft MQTT ueber
+  Exportadapter-Snapshots.
 - Export-Snapshot-Tests fuer stabile Integrationsdateien.
 
 ### Hardware-nahe Tests
@@ -377,9 +389,10 @@ Schreiben alte und neue Werte.
 
 ## Abnahmekriterien fuer Release 1
 
-- Der Service startet lokal ohne Adminrechte.
-- Die Browser-UI erkennt mindestens einen COM-Port und kann mehrere Controller
-  als getrennte Sessions anzeigen.
+- Die Windows-App startet ohne Adminrechte, oeffnet ein eigenes Fenster und
+  startet den lokalen Host intern.
+- Die eingebettete UI erkennt mindestens einen COM-Port und kann mehrere
+  Controller als getrennte Sessions anzeigen.
 - Ein angeschlossener Pico kann ueber USB CDC gelesen werden.
 - ID und Safe-Position koennen geaendert und per Readback bestaetigt werden.
 - Modbus-RTU-Kommunikation kann ueber USB-RS485 getestet werden.

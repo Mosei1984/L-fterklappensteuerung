@@ -1,46 +1,24 @@
+# Library Layout
 
-This directory is intended for project specific (private) libraries.
-PlatformIO will compile them to static libraries and link into the executable file.
+Project-specific firmware libraries live here. The active controller library is
+`lib/Luefterklappe`.
 
-The source code of each library should be placed in a separate directory
-("lib/your_library_name/[Code]").
+## Luefterklappe
 
-For example, see the structure of the following example libraries `Foo` and `Bar`:
+`lib/Luefterklappe/src` is the MCU-independent firmware core. Keep Arduino,
+RP2040 and board-specific code out of this layer.
 
-|--lib
-|  |
-|  |--Bar
-|  |  |--docs
-|  |  |--examples
-|  |  |--src
-|  |     |- Bar.c
-|  |     |- Bar.h
-|  |  |- library.json (optional. for custom build options, etc) https://docs.platformio.org/page/librarymanager/config.html
-|  |
-|  |--Foo
-|  |  |- Foo.c
-|  |  |- Foo.h
-|  |
-|  |- README --> THIS FILE
-|
-|- platformio.ini
-|--src
-   |- main.c
+Main modules:
 
-Example contents of `src/main.c` using Foo and Bar:
-```
-#include <Foo.h>
-#include <Bar.h>
+- `FanFlapController.*`: state machine, homing, safe position, soft endstops,
+  fault handling and service text commands.
+- `ModbusRtuServer.*`: Modbus RTU slave, CRC16, address filtering, register
+  map and exception responses.
+- `Tmc2209Driver.*`: TMC2209 UART datagrams, CRC, configuration and
+  StallGuard polling.
+- `PersistentSettings.*`: device ID and safe-position persistence with magic,
+  version and CRC.
+- `IoPorts.h`: HAL boundary for stepper, UART, delay and event logging.
 
-int main (void)
-{
-  ...
-}
-
-```
-
-The PlatformIO Library Dependency Finder will find automatically dependent
-libraries by scanning project source files.
-
-More information about PlatformIO Library Dependency Finder
-- https://docs.platformio.org/page/librarymanager/ldf.html
+Native tests in `test/test_controller` exercise this library without MCU
+hardware through fake ports.

@@ -34,35 +34,75 @@ Raspberry-Pi-Pico/Arduino-HAL.
 
 ```mermaid
 flowchart TB
-  subgraph Home["Home automation"]
-    Loxone["Loxone Modbus Extension<br/>RS485 master"]
+  subgraph Home["Windows user and home automation"]
+    User["End user<br/>Windows setup wizard"]
+    LoxoneRtu["Loxone Modbus Extension<br/>RS485 RTU master"]
+    LoxoneTcp["Loxone or test client<br/>Modbus TCP"]
+    HomeExports["Home Assistant / openHAB / MQTT<br/>generated files"]
   end
 
-  subgraph PicoHal["Pico HAL: src/main.cpp"]
-    Usb["USB Serial<br/>debug events"]
-    Rs485Hal["Serial1 RS485<br/>GP0/GP1, 38400 8N1"]
+  subgraph Configurator["PC configurator: tools/configurator"]
+    Installer["Setup package<br/>EULA, Start menu, uninstall, status"]
+    Desktop["Desktop shell<br/>WinForms + WebView2<br/>Luefterklappen-Konfigurator.exe"]
+    Host["Local ASP.NET Core host<br/>Razor UI + REST API<br/>127.0.0.1:5184"]
+    App["Application services<br/>ConfiguratorService<br/>sessions, commands, exports"]
+    Profiles["Profiles<br/>FanFlapProfile<br/>JSON profile import + schema"]
+    Adapters["Export adapters<br/>Loxone XML/JSON/MD<br/>HA MQTT discovery<br/>openHAB + Modbus docs"]
+    Infra["Infrastructure<br/>Serial discovery<br/>USB text + Modbus RTU<br/>UF2 check/flash"]
+    TcpGateway["Modbus TCP gateway core<br/>explicit local mode"]
+    AppData["App_Data<br/>exports + data-protection keys"]
+  end
+
+  subgraph Firmware["Raspberry Pi Pico firmware"]
+    Usb["USB CDC service port<br/>debug and expert text commands"]
+    Rs485Hal["Serial1 RS485 HAL<br/>GP0/GP1, 38400 8N1"]
     TmcHal["TMC UART HAL<br/>GP8/GP9, 115200 8N1"]
     StepperHal["AccelStepper HAL<br/>STEP/DIR/ENABLE"]
     InputHal["GPIO inputs<br/>MIN/MAX endstops"]
+    LedHal["Builtin status LED<br/>homing, ready, fault"]
     FlashHal["FlashIAP settings<br/>last flash sector"]
   end
 
-  subgraph Core["MCU independent core: lib/Luefterklappe/src"]
-    Modbus["ModbusRtuServer<br/>CRC16, address filter, registers"]
+  subgraph Core["MCU-independent core: lib/Luefterklappe/src"]
     Controller["FanFlapController<br/>state machine, homing, faults"]
+    Modbus["ModbusRtuServer<br/>CRC16, address filter, registers"]
     Tmc["Tmc2209Driver<br/>UART datagrams, CRC, StallGuard"]
-    Settings["PersistentSettings<br/>magic, version, CRC"]
+    Settings["PersistentSettings<br/>device ID + safe position, CRC"]
     Ports["IoPorts interfaces<br/>StepperPort, UartPort, DelayPort, EventSink"]
   end
 
-  subgraph Hardware["Field hardware"]
-    Driver["TMC2209 stepper driver"]
-    Motor["Stepper motor"]
-    MinMax["Min/Max switches"]
-    Rs485Bus["2-wire RS485 bus"]
+  subgraph Hardware["80 mm pipe-valve hardware"]
+    Rs485Bus["2-wire RS485 bus<br/>A/B + GND"]
+    Driver["TMC2209 stepper driver<br/>UART mode"]
+    Motor["Stepper motor<br/>valve actuator"]
+    MinMax["MIN/MAX switches<br/>primary homing reference"]
+    Psu["Motor PSU<br/>VMOT + common GND"]
   end
 
-  Loxone <-->|"Modbus RTU"| Rs485Bus
+  subgraph Quality["Quality and agent guardrails"]
+    HardGate["tools/run_hard_checks.ps1<br/>all-functions gate"]
+    FirmwareTests["Firmware native tests<br/>45 cases"]
+    ConfigTests["Configurator xUnit tests<br/>61 cases + Cobertura"]
+    StaticChecks["clang-tidy, cppcheck, MISRA path<br/>markdownlint, Razor, LSP logs"]
+    AgentHooks["tools/agent-hooks<br/>repo and subagent policy smoke tests"]
+  end
+
+  User --> Installer
+  Installer --> Desktop
+  Desktop --> Host
+  Host --> App
+  App --> Profiles
+  App --> Adapters
+  App --> Infra
+  App --> TcpGateway
+  Adapters --> AppData
+  Host --> AppData
+  AppData --> HomeExports
+  LoxoneTcp <-->|"optional local gateway"| TcpGateway
+  Infra <-->|"USB CDC text service"| Usb
+  Infra -. "UF2 filesystem copy" .-> Usb
+
+  LoxoneRtu <-->|"Modbus RTU"| Rs485Bus
   Rs485Bus <-->|"A/B + GND"| Rs485Hal
   Rs485Hal --> Modbus
   Modbus --> Controller
@@ -70,16 +110,25 @@ flowchart TB
   Settings --> FlashHal
   Controller --> StepperHal
   Controller --> Tmc
+  Controller --> LedHal
   Tmc --> TmcHal
   TmcHal <-->|"UART"| Driver
   StepperHal -->|"STEP/DIR/ENABLE"| Driver
   Driver --> Motor
+  Psu --> Driver
   MinMax --> InputHal
   InputHal --> Controller
   Controller --> Usb
   Controller -. uses .-> Ports
   Modbus -. uses .-> Ports
   Tmc -. uses .-> Ports
+
+  HardGate --> FirmwareTests
+  HardGate --> ConfigTests
+  HardGate --> StaticChecks
+  HardGate --> AgentHooks
+  FirmwareTests -. verifies .-> Core
+  ConfigTests -. verifies .-> Configurator
 ```
 
 ### Komponenten
@@ -94,7 +143,13 @@ flowchart TB
 | `src/main.cpp` | Pico/Arduino-HAL, Pinning, Serial1 RS485, TMC-UART, GPIO |
 | `test/test_controller/test_main.cpp` | Native Unit-Tests fuer Core, Modbus und TMC |
 | `tools/la/` | sigrok-cli Capture, Decode und Offline-Analyse |
-| `tools/configurator/` | Windows-Service-Tool mit eingebetteter UI fuer Setup, Diagnose und Exporte |
+| `tools/configurator/src/LuefterConfigurator.Desktop` | Windows-Fenster mit WebView2, startet den lokalen Host unsichtbar |
+| `tools/configurator/src/LuefterConfigurator.Host` | ASP.NET-Core/Razor-UI und lokale REST-API |
+| `tools/configurator/src/LuefterConfigurator.Application` | Controller-Scan, Config-State, Befehle, Gateway- und Exportkoordination |
+| `tools/configurator/src/LuefterConfigurator.Adapters.*` | Loxone, Home Assistant, openHAB und generische Modbus-Exporte |
+| `tools/configurator/src/LuefterConfigurator.Infrastructure.*` | Serial/USB, UF2-Firmwarepfad, Modbus-TCP-Frame/Gateway |
+| `tools/run_hard_checks.ps1` | Gesamter Qualitaetslauf mit Coverage, Razor, Markdown, LSP-Logs und Hook-Smoke |
+| `tools/agent-hooks/` | Repo- und Subagent-Guardrails fuer sichere Agentenarbeit |
 | `docs/diagrams/` | Mermaid-Quellen fuer Architektur und Wiring |
 
 ## Konfigurator
@@ -147,32 +202,35 @@ Deinstallation laeuft ueber Apps & Features oder den Startmenueeintrag
 ```mermaid
 flowchart LR
   Pico["Raspberry Pi Pico<br/>Arduino-Pico firmware"]
-  Rs485["Waveshare Pico-2CH-RS485<br/>CH0 only"]
+  Usb["USB host / PC<br/>service serial 115200<br/>UF2 BOOTSEL drive"]
+  Led["Builtin LED<br/>slow blink homing<br/>on ready<br/>fast blink fault"]
+  Rs485["Waveshare Pico-2CH-RS485<br/>CH0 used for Modbus RTU<br/>CH1 unused/reserved"]
   Loxone["Loxone Modbus Extension<br/>RS485 master"]
-  Tmc["TMC2209 driver module"]
-  Motor["Stepper motor"]
+  Tmc["TMC2209 driver module<br/>UART mode"]
+  Motor["Stepper motor<br/>80 mm pipe valve"]
   Min["MIN endstop<br/>NO switch to GND"]
   Max["MAX endstop<br/>NO switch to GND"]
   Psu["Motor PSU<br/>according to driver and motor"]
   La["Logic analyzer<br/>optional"]
-  Usb["USB host<br/>debug serial 115200"]
 
-  Pico -- "GP0 Serial1 TX" --> Rs485
-  Rs485 -- "GP1 Serial1 RX" --> Pico
-  Rs485 <-->|"A/B twisted pair + GND<br/>38400 8N1"| Loxone
+  Usb <-->|"USB CDC debug/text<br/>and UF2 flashing"| Pico
+  Led -. "LED_BUILTIN / GP25" .-> Pico
+
+  Pico -- "GP0 Serial1 TX<br/>Modbus replies" --> Rs485
+  Rs485 -- "GP1 Serial1 RX<br/>Modbus requests" --> Pico
+  Rs485 <-->|"CH0 A/B twisted pair + GND<br/>38400 8N1"| Loxone
 
   Pico -- "GP2 STEP" --> Tmc
   Pico -- "GP3 DIR" --> Tmc
   Pico -- "GP7 ENABLE active low" --> Tmc
-  Pico -- "GP8 UART TX" --> Tmc
-  Tmc -- "GP9 UART RX" --> Pico
+  Pico -- "GP8 UART TX<br/>Pico to TMC PDN_UART" --> Tmc
+  Tmc -- "GP9 UART RX<br/>TMC to Pico UART" --> Pico
   Pico -- "3V3 VIO + GND" --> Tmc
   Psu -- "VMOT + GND" --> Tmc
   Tmc -- "A1/A2/B1/B2" --> Motor
 
   Min -- "GP5 input pullup<br/>active low" --> Pico
   Max -- "GP6 input pullup<br/>active low" --> Pico
-  Usb <-->|"USB CDC"| Pico
 
   La -. "D0: GP0 RS485 TX" .-> Pico
   La -. "D1: GP1 RS485 RX" .-> Pico
@@ -215,6 +273,8 @@ flowchart LR
   Sicherheitsschalter muss die HAL-Logik angepasst oder extern invertiert werden.
 - RS485 A/B nicht direkt mit einem 3.3-V-Logic-Analyzer messen. Fuer UART-
   Decoding an GP0/GP1 bzw. DI/RO messen.
+- Auf dem Waveshare Pico-2CH-RS485 wird aktuell nur CH0 verwendet. CH1 bleibt
+  frei/reserviert und ist kein automatischer Repeater fuer den Modbus-Bus.
 
 ### BTT TMC2209 V1.3
 

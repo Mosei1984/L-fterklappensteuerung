@@ -3,6 +3,10 @@
 Windows-Service-Tool fuer die Luefterklappensteuerung eines 80-mm-Rohrventils.
 Die normale Bedienung laeuft in `Luefterklappen-Konfigurator.exe` als eigenes
 Windows-Fenster; der lokale Host wird intern im Hintergrund gestartet.
+Technisch besteht die App aus einer WinForms/WebView2-Desktop-Shell, einem
+lokalen ASP.NET-Core/Razor-Host, Application-Services, Profilen,
+Home-Automation-Exportadaptern und Infrastrukturmodulen fuer USB/Serial, UF2
+und Modbus TCP.
 
 ## Voraussetzungen
 
@@ -173,7 +177,7 @@ Deinstallation und registriert den Uninstaller unter
 `HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall`.
 Das Paket enthaelt `Luefterklappen-Konfigurator.ico`; dieses Icon wird fuer den
 Startmenueintrag, den Apps-und-Features-Eintrag und den Installationsordner
-mitkopiert. Die Browser-UI nutzt die passenden SVG/PNG-Logoassets aus
+mitkopiert. Die eingebettete UI nutzt die passenden SVG/PNG-Logoassets aus
 `wwwroot/brand`.
 
 Deinstallation:
@@ -200,6 +204,14 @@ MSBuild-/Razor-Binlogs und Markdownlint-/LSP-Log-Artefakte:
 powershell -NoProfile -ExecutionPolicy Bypass -File ..\..\tools\run_hard_checks.ps1
 ```
 
+Aktueller Stand:
+
+- Configurator xUnit: 61 Tests.
+- Coverage im Hard-Gate: Cobertura XML plus Markdown-Zusammenfassung.
+- Razor-Build: `RazorCompileOnBuild=true` mit Binlog.
+- VS Code: C# Dev Kit/Test Explorer/Razor/LSP-Trace-Einstellungen werden im
+  Gate validiert und vorhandene Logs werden in die Artefakte kopiert.
+
 ## Firmware-Quality
 
 Auf Windows sollte PlatformIO mit kurzem Core-Pfad laufen, damit Arduino-Mbed-Pakete nicht an Pfadlaengen scheitern:
@@ -219,4 +231,5 @@ powershell -ExecutionPolicy Bypass -File ..\..\tools\run_quality_checks.ps1
 - UF2 Firmware Update Workflow
 - JSON Profilimport
 - Loxone/Home Assistant/openHAB/Modbus Exporte
-- eingebettete Windows-UI mit Health- und Configurator-API
+- WinForms/WebView2-Windows-App mit intern gestartetem lokalen Host
+- Health-, Configurator-, Firmware-, Gateway- und Export-API

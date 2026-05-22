@@ -13,6 +13,10 @@ when joining the project.
 - Configurator solution: `tools/configurator/LuefterConfigurator.sln`
 - Configurator host/UI: `tools/configurator/src/LuefterConfigurator.Host`
 - Home automation adapters: `tools/configurator/src/LuefterConfigurator.Adapters.*`
+- Windows desktop shell: `tools/configurator/src/LuefterConfigurator.Desktop`
+- Diagrams and documentation: `README.md`, `docs/diagrams/*.mmd`,
+  `tools/configurator/README.md`, `tools/la/README.md`
+- Agent guardrails: `tools/agent-hooks/luefter_repo_hook.ps1`
 
 ## Quality gate
 
@@ -46,6 +50,11 @@ Hard-gate artifacts are written under
 VS Code C#/Razor/LSP log snapshots, Test Explorer settings validation, MSBuild
 binlogs, Razor compile logs, TRX test output, Cobertura coverage, Markdown lint,
 repo/subagent hook smoke tests and the full firmware/configurator gate.
+
+Documentation changes must keep `README.md` Mermaid blocks and
+`docs/diagrams/architecture.mmd` / `docs/diagrams/wiring.mmd` in sync. Render
+with `npm run diagrams` when diagram sources change, then run
+`npm run markdownlint`.
 
 ## Configurator commands
 
@@ -94,6 +103,8 @@ artifacts/configurator-installer/win-x64/Luefterklappen-Konfigurator-win-x64.zip
 
 - Do not commit `.pio`, `.pio-home`, `.dotnet-sdk`, `.dotnet-cli-home`,
   `node_modules`, `artifacts`, `bin`, `obj`, or `App_Data`.
+- Do not commit AI-assistant co-author trailers or generated-by metadata.
+  Commits should use `Airhog-Fpv <116745046+Mosei1984@users.noreply.github.com>`.
 - Generated configurator assets that belong in source live under
   `tools/configurator/src/LuefterConfigurator.Host/wwwroot/brand` and
   `tools/configurator/src/LuefterConfigurator.Host/Assets/logo`.

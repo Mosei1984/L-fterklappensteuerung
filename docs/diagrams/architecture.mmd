@@ -1,33 +1,73 @@
 flowchart TB
-  subgraph Home["Home automation"]
-    Loxone["Loxone Modbus Extension<br/>RS485 master"]
+  subgraph Home["Windows user and home automation"]
+    User["End user<br/>Windows setup wizard"]
+    LoxoneRtu["Loxone Modbus Extension<br/>RS485 RTU master"]
+    LoxoneTcp["Loxone or test client<br/>Modbus TCP"]
+    HomeExports["Home Assistant / openHAB / MQTT<br/>generated files"]
   end
 
-  subgraph PicoHal["Pico HAL: src/main.cpp"]
-    Usb["USB Serial<br/>debug events"]
-    Rs485Hal["Serial1 RS485<br/>GP0/GP1, 38400 8N1"]
+  subgraph Configurator["PC configurator: tools/configurator"]
+    Installer["Setup package<br/>EULA, Start menu, uninstall, status"]
+    Desktop["Desktop shell<br/>WinForms + WebView2<br/>Luefterklappen-Konfigurator.exe"]
+    Host["Local ASP.NET Core host<br/>Razor UI + REST API<br/>127.0.0.1:5184"]
+    App["Application services<br/>ConfiguratorService<br/>sessions, commands, exports"]
+    Profiles["Profiles<br/>FanFlapProfile<br/>JSON profile import + schema"]
+    Adapters["Export adapters<br/>Loxone XML/JSON/MD<br/>HA MQTT discovery<br/>openHAB + Modbus docs"]
+    Infra["Infrastructure<br/>Serial discovery<br/>USB text + Modbus RTU<br/>UF2 check/flash"]
+    TcpGateway["Modbus TCP gateway core<br/>explicit local mode"]
+    AppData["App_Data<br/>exports + data-protection keys"]
+  end
+
+  subgraph Firmware["Raspberry Pi Pico firmware"]
+    Usb["USB CDC service port<br/>debug and expert text commands"]
+    Rs485Hal["Serial1 RS485 HAL<br/>GP0/GP1, 38400 8N1"]
     TmcHal["TMC UART HAL<br/>GP8/GP9, 115200 8N1"]
     StepperHal["AccelStepper HAL<br/>STEP/DIR/ENABLE"]
     InputHal["GPIO inputs<br/>MIN/MAX endstops"]
+    LedHal["Builtin status LED<br/>homing, ready, fault"]
     FlashHal["FlashIAP settings<br/>last flash sector"]
   end
 
-  subgraph Core["MCU independent core: lib/Luefterklappe/src"]
-    Modbus["ModbusRtuServer<br/>CRC16, address filter, registers"]
+  subgraph Core["MCU-independent core: lib/Luefterklappe/src"]
     Controller["FanFlapController<br/>state machine, homing, faults"]
+    Modbus["ModbusRtuServer<br/>CRC16, address filter, registers"]
     Tmc["Tmc2209Driver<br/>UART datagrams, CRC, StallGuard"]
-    Settings["PersistentSettings<br/>magic, version, CRC"]
+    Settings["PersistentSettings<br/>device ID + safe position, CRC"]
     Ports["IoPorts interfaces<br/>StepperPort, UartPort, DelayPort, EventSink"]
   end
 
-  subgraph Hardware["Field hardware"]
-    Driver["TMC2209 stepper driver"]
-    Motor["Stepper motor"]
-    MinMax["Min/Max switches"]
-    Rs485Bus["2-wire RS485 bus"]
+  subgraph Hardware["80 mm pipe-valve hardware"]
+    Rs485Bus["2-wire RS485 bus<br/>A/B + GND"]
+    Driver["TMC2209 stepper driver<br/>UART mode"]
+    Motor["Stepper motor<br/>valve actuator"]
+    MinMax["MIN/MAX switches<br/>primary homing reference"]
+    Psu["Motor PSU<br/>VMOT + common GND"]
   end
 
-  Loxone <-->|"Modbus RTU"| Rs485Bus
+  subgraph Quality["Quality and agent guardrails"]
+    HardGate["tools/run_hard_checks.ps1<br/>all-functions gate"]
+    FirmwareTests["Firmware native tests<br/>45 cases"]
+    ConfigTests["Configurator xUnit tests<br/>61 cases + Cobertura"]
+    StaticChecks["clang-tidy, cppcheck, MISRA path<br/>markdownlint, Razor, LSP logs"]
+    AgentHooks["tools/agent-hooks<br/>repo and subagent policy smoke tests"]
+  end
+
+  User --> Installer
+  Installer --> Desktop
+  Desktop --> Host
+  Host --> App
+  App --> Profiles
+  App --> Adapters
+  App --> Infra
+  App --> TcpGateway
+  Adapters --> AppData
+  Host --> AppData
+  AppData --> HomeExports
+  LoxoneTcp <-->|"optional local gateway"| TcpGateway
+  Infra <-->|"USB CDC text service"| Usb
+  Infra -. "UF2 filesystem copy" .-> Usb
+
+  LoxoneRtu <-->|"Modbus RTU"| Rs485Bus
   Rs485Bus <-->|"A/B + GND"| Rs485Hal
   Rs485Hal --> Modbus
   Modbus --> Controller
@@ -35,13 +75,22 @@ flowchart TB
   Settings --> FlashHal
   Controller --> StepperHal
   Controller --> Tmc
+  Controller --> LedHal
   Tmc --> TmcHal
   TmcHal <-->|"UART"| Driver
   StepperHal -->|"STEP/DIR/ENABLE"| Driver
   Driver --> Motor
+  Psu --> Driver
   MinMax --> InputHal
   InputHal --> Controller
   Controller --> Usb
   Controller -. uses .-> Ports
   Modbus -. uses .-> Ports
   Tmc -. uses .-> Ports
+
+  HardGate --> FirmwareTests
+  HardGate --> ConfigTests
+  HardGate --> StaticChecks
+  HardGate --> AgentHooks
+  FirmwareTests -. verifies .-> Core
+  ConfigTests -. verifies .-> Configurator
