@@ -383,6 +383,18 @@ powershell -ExecutionPolicy Bypass -File .\tools\run_quality_checks.ps1
 Das Skript fuehrt native Tests, Pico-Build, clang-tidy, cppcheck und den
 MISRA-Addon-Pfad aus.
 
+Vor Push, Release, Installer-Aenderungen oder Abschlussmeldung den harten
+Gesamt-Gate ausfuehren:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_hard_checks.ps1
+```
+
+Dieser Lauf erzeugt unter `artifacts/quality/hard-all-functions` TRX-Reports,
+Cobertura-Coverage, MSBuild-/Razor-Binlogs, Markdownlint-Ergebnis,
+VS-Code-C#/Razor/LSP-Log-Snapshots, Test-Explorer-Settings-Pruefung,
+Repo-/Subagent-Hook-Smoke-Tests und den kompletten Firmware-Gate.
+
 ### 5. Geraete-ID setzen
 
 Default-ID beim Build setzen:
@@ -486,6 +498,7 @@ platformio test -e native
 platformio run -e pico
 platformio check -e native --skip-packages
 powershell -ExecutionPolicy Bypass -File .\tools\run_quality_checks.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_hard_checks.ps1
 python .\tools\la\analyze_la_capture.py --self-test
 powershell -ExecutionPolicy Bypass -File .\tools\la\capture_luefterklappe.ps1 -PrintOnly
 ```

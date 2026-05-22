@@ -426,6 +426,8 @@ void FanFlapController::refreshMachine() {
 }
 
 void FanFlapController::enterError() {
+  motor_.stop();
+  motor_.setDriverEnabled(false);
   valveFreeCheckActive_ = false;
   state_ = ControllerState::ErrorDetected;
 }

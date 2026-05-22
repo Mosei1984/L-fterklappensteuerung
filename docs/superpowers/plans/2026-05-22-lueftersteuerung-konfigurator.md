@@ -66,6 +66,7 @@ Responsibilities:
 ## Task 1: Toolchain And Solution Scaffold
 
 **Files:**
+
 - Create: `tools/configurator/LuefterConfigurator.sln`
 - Create: `tools/configurator/Directory.Build.props`
 - Create: all project files under `tools/configurator/src/**`
@@ -207,6 +208,7 @@ git commit -m "Add configurator solution scaffold"
 ## Task 2: Domain Model And Validation
 
 **Files:**
+
 - Create: `tools/configurator/src/LuefterConfigurator.Domain/ControllerProfile.cs`
 - Create: `tools/configurator/src/LuefterConfigurator.Domain/ControllerSession.cs`
 - Create: `tools/configurator/src/LuefterConfigurator.Domain/RegisterDefinition.cs`
@@ -372,6 +374,7 @@ git commit -m "Add configurator domain model"
 ## Task 3: FanFlap Built-In Profile And Protocol Parsing
 
 **Files:**
+
 - Create: `tools/configurator/src/LuefterConfigurator.Profiles.FanFlap/FanFlapProfile.cs`
 - Create: `tools/configurator/src/LuefterConfigurator.Profiles.FanFlap/FanFlapTextProtocol.cs`
 - Create: `tools/configurator/src/LuefterConfigurator.Profiles.FanFlap/FanFlapModbusMap.cs`
@@ -533,6 +536,7 @@ git commit -m "Add fan flap profile"
 ## Task 4: JSON Profile Import
 
 **Files:**
+
 - Create: `tools/configurator/src/LuefterConfigurator.Profiles.Json/controller-profile.schema.json`
 - Create: `tools/configurator/src/LuefterConfigurator.Profiles.Json/JsonProfileImporter.cs`
 - Test: `tools/configurator/tests/LuefterConfigurator.Tests/Profiles/JsonProfileImporterTests.cs`
@@ -693,6 +697,7 @@ git commit -m "Add JSON controller profile import"
 ## Task 5: USB Text And Modbus RTU Transport Foundation
 
 **Files:**
+
 - Create: `tools/configurator/src/LuefterConfigurator.Infrastructure.Serial/ISerialConnection.cs`
 - Create: `tools/configurator/src/LuefterConfigurator.Infrastructure.Serial/UsbTextTransport.cs`
 - Create: `tools/configurator/src/LuefterConfigurator.Infrastructure.Serial/ModbusRtuCrc.cs`
@@ -887,6 +892,7 @@ git commit -m "Add configurator serial transport foundation"
 ## Task 6: Multi-Controller Sessions
 
 **Files:**
+
 - Create: `tools/configurator/src/LuefterConfigurator.Application/MultiControllerSessionService.cs`
 - Test: `tools/configurator/tests/LuefterConfigurator.Tests/Application/MultiControllerSessionServiceTests.cs`
 
@@ -991,6 +997,7 @@ git commit -m "Add multi-controller session service"
 ## Task 7: Modbus TCP Gateway Core
 
 **Files:**
+
 - Create: `tools/configurator/src/LuefterConfigurator.Infrastructure.ModbusTcp/ModbusTcpFrame.cs`
 - Create: `tools/configurator/src/LuefterConfigurator.Infrastructure.ModbusTcp/ModbusTcpGateway.cs`
 - Test: `tools/configurator/tests/LuefterConfigurator.Tests/ModbusTcp/ModbusTcpFrameTests.cs`
@@ -1121,6 +1128,7 @@ git commit -m "Add Modbus TCP gateway core"
 ## Task 8: UF2 Firmware Update Workflow
 
 **Files:**
+
 - Create: `tools/configurator/src/LuefterConfigurator.Infrastructure.Firmware/Uf2DriveDetector.cs`
 - Create: `tools/configurator/src/LuefterConfigurator.Infrastructure.Firmware/PicoUf2FirmwareUpdater.cs`
 - Test: `tools/configurator/tests/LuefterConfigurator.Tests/Firmware/Uf2FirmwareUpdaterTests.cs`
@@ -1249,6 +1257,7 @@ git commit -m "Add UF2 firmware update workflow"
 ## Task 9: Export Adapters
 
 **Files:**
+
 - Create: `tools/configurator/src/LuefterConfigurator.Domain/ExportContracts.cs`
 - Create: `tools/configurator/src/LuefterConfigurator.Adapters.Loxone/LoxoneExportAdapter.cs`
 - Create: `tools/configurator/src/LuefterConfigurator.Adapters.HomeAssistant/HomeAssistantMqttDiscoveryAdapter.cs`
@@ -1358,6 +1367,7 @@ git commit -m "Add home automation export adapters"
 ## Task 10: Local Host And Browser UI
 
 **Files:**
+
 - Modify: `tools/configurator/src/LuefterConfigurator.Host/Program.cs`
 - Create: `tools/configurator/src/LuefterConfigurator.Host/Pages/Index.cshtml`
 - Create: `tools/configurator/src/LuefterConfigurator.Host/Pages/Index.cshtml.cs`
@@ -1465,6 +1475,7 @@ git commit -m "Add local configurator host UI"
 ## Task 11: Documentation And Verification
 
 **Files:**
+
 - Modify: `README.md`
 - Create: `tools/configurator/README.md`
 - Modify: `tools/run_quality_checks.ps1`
@@ -1473,7 +1484,7 @@ git commit -m "Add local configurator host UI"
 
 Create `tools/configurator/README.md`:
 
-```markdown
+````markdown
 # Lueftersteuerung Konfigurator
 
 Lokaler C# Service mit Browser-UI fuer die Luefterklappensteuerung.
@@ -1501,7 +1512,7 @@ dotnet test tools\configurator\LuefterConfigurator.sln
 - UF2 Firmware Update
 - JSON Profilimport
 - Loxone/Home Assistant/openHAB/Modbus Exporte
-```
+````
 
 - [ ] **Step 2: Add configurator check to quality script**
 

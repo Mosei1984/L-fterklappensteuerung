@@ -16,7 +16,7 @@ when joining the project.
 
 ## Quality gate
 
-Run the full gate before claiming completion:
+Run the fast project gate during normal development:
 
 Command path for scripts and tests: `tools/run_quality_checks.ps1`.
 
@@ -28,11 +28,24 @@ powershell -ExecutionPolicy Bypass -File .\tools\run_quality_checks.ps1
 
 Expected current coverage:
 
-- Firmware native tests: 42 passing tests.
+- Firmware native tests: 45 passing tests.
 - Pico firmware build: `pico` environment succeeds.
 - PlatformIO clang-tidy/cppcheck: native and pico pass.
 - Standalone cppcheck/MISRA addon path runs.
-- Configurator tests: 59 passing tests.
+- Configurator tests: 61 passing tests.
+
+Run the hard all-functions gate before push, release, installer changes or
+completion claims:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\run_hard_checks.ps1
+```
+
+Hard-gate artifacts are written under
+`artifacts/quality/hard-all-functions`. The gate captures environment logs,
+VS Code C#/Razor/LSP log snapshots, Test Explorer settings validation, MSBuild
+binlogs, Razor compile logs, TRX test output, Cobertura coverage, Markdown lint,
+repo/subagent hook smoke tests and the full firmware/configurator gate.
 
 ## Configurator commands
 

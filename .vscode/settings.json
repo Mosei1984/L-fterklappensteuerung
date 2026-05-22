@@ -1,4 +1,13 @@
 {
   "C_Cpp.default.compileCommands": "${workspaceFolder}/compile_commands.json",
-  "C_Cpp.default.configurationProvider": "platformio.platformio-ide"
+  "C_Cpp.default.configurationProvider": "platformio.platformio-ide",
+  "dotnet.defaultSolution": "tools/configurator/LuefterConfigurator.sln",
+  "dotnet.server.trace": "Trace",
+  "dotnet.testWindow.disableBuildOnRefresh": false,
+  "dotnet.testWindow.disableBuildOnRun": false,
+  "dotnet.testWindow.discoveryTimeoutInSec": 900,
+  "dotnet.testWindow.enableTestExplorerDiff": true,
+  "razor.trace": "Verbose",
+  "csharp.debug.debugConsoleVerbosity": "verbose",
+  "csharp.debug.hotReloadVerbosity": "diagnostic"
 }

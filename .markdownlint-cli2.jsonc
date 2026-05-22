@@ -1,0 +1,28 @@
+{
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD024": false,
+    "MD029": false,
+    "MD033": false,
+    "MD041": false
+  },
+  "globs": [
+    "*.md",
+    "README",
+    "test/README",
+    "docs/**/*.md",
+    "tools/**/*.md"
+  ],
+  "ignores": [
+    "artifacts/**",
+    "node_modules/**",
+    ".pio/**",
+    ".pio-home/**",
+    ".dotnet*/**",
+    ".nuget/**",
+    "tools/configurator/**/App_Data/**",
+    "tools/configurator/**/bin/**",
+    "tools/configurator/**/obj/**"
+  ]
+}

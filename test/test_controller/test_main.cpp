@@ -650,6 +650,39 @@ void test_ready_faults_on_unexpected_switch_and_stall() {
   TEST_ASSERT_TRUE(stalledEvents.contains(EventId::StallDetected));
 }
 
+void test_fault_stops_and_disables_driver_in_same_tick() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.speed_ = 1.0F;
+  const std::uint32_t stopCountBeforeFault = stepper.stopCount_;
+
+  controller.tick(DigitalInputs{true, false, false}, 20U);
+
+  TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
+  TEST_ASSERT_FALSE(stepper.enabled_);
+  TEST_ASSERT_EQUAL_FLOAT(0.0F, stepper.speed_);
+  TEST_ASSERT_EQUAL_UINT32(stopCountBeforeFault + 1U, stepper.stopCount_);
+}
+
+void test_home_command_after_fault_does_not_bypass_disabled_driver() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.speed_ = 1.0F;
+
+  controller.tick(DigitalInputs{true, false, false}, 20U);
+  controller.handleCommand("HOME");
+
+  TEST_ASSERT_EQUAL(ControllerState::AutoRehome, controller.state());
+  TEST_ASSERT_FALSE(stepper.enabled_);
+  TEST_ASSERT_EQUAL_FLOAT(0.0F, stepper.speed_);
+}
+
 void test_move_starts_and_passes_valve_free_check() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -1035,6 +1068,32 @@ void test_modbus_safe_position_register_validates_and_updates() {
   TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[2]);
 }
 
+void test_modbus_rejects_soft_endstop_writes_while_faulted() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.speed_ = 1.0F;
+  controller.tick(DigitalInputs{true, false, false}, 20U);
+  TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
+  events.clear();
+
+  std::uint8_t request[8]{1U, 0x06U, 0U, 0U, 0U, 250U, 0U, 0U};
+  writeModbusUint16(request, 2U,
+                    static_cast<std::uint16_t>(ModbusRegister::SoftMinLow));
+  writeModbusUint16(request, 4U, 250U);
+  feedModbusFrame(server, request, 6U);
+
+  TEST_ASSERT_EQUAL_INT32(0, controller.softMinPosition());
+  TEST_ASSERT_EQUAL_UINT32(0U, events.count_);
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x86U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[2]);
+}
+
 void test_modbus_rejects_invalid_register_and_device_id() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -1271,6 +1330,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_soft_endstop_configuration_handles_clamps_and_invalid_ranges);
   RUN_TEST(test_commands_are_safe_before_ready_and_status_is_always_available);
   RUN_TEST(test_ready_faults_on_unexpected_switch_and_stall);
+  RUN_TEST(test_fault_stops_and_disables_driver_in_same_tick);
+  RUN_TEST(test_home_command_after_fault_does_not_bypass_disabled_driver);
   RUN_TEST(test_move_starts_and_passes_valve_free_check);
   RUN_TEST(test_move_free_check_faults_when_valve_is_blocked);
   RUN_TEST(test_reset_command_in_wait_reset_starts_rehome);
@@ -1288,6 +1349,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_modbus_write_target_permille_moves_when_ready);
   RUN_TEST(test_modbus_broadcast_write_is_ignored_for_home_safety);
   RUN_TEST(test_modbus_safe_position_register_validates_and_updates);
+  RUN_TEST(test_modbus_rejects_soft_endstop_writes_while_faulted);
   RUN_TEST(test_modbus_rejects_invalid_register_and_device_id);
   RUN_TEST(test_modbus_rejects_invalid_command_values);
   RUN_TEST(test_modbus_refresh_machine_command_rehomes_from_fault);

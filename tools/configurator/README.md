@@ -193,6 +193,13 @@ $env:DOTNET_CLI_HOME=(Resolve-Path ..\..).Path
 & 'C:\Users\mosei\.dotnet8\dotnet.exe' test .\LuefterConfigurator.sln
 ```
 
+Der harte Repo-Gate erzeugt zusaetzlich TRX, Cobertura-Coverage,
+MSBuild-/Razor-Binlogs und Markdownlint-/LSP-Log-Artefakte:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\..\tools\run_hard_checks.ps1
+```
+
 ## Firmware-Quality
 
 Auf Windows sollte PlatformIO mit kurzem Core-Pfad laufen, damit Arduino-Mbed-Pakete nicht an Pfadlaengen scheitern:

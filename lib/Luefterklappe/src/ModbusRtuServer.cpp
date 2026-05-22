@@ -371,6 +371,9 @@ std::uint8_t ModbusRtuServer::validateRegisterWrite(
     case ModbusRegister::SoftMinLow:
     case ModbusRegister::SoftMaxHigh:
     case ModbusRegister::SoftMaxLow:
+      if (controller_.state() != ControllerState::Ready) {
+        return kIllegalDataValue;
+      }
       return kNoException;
     case ModbusRegister::DeviceId:
       if ((write.value == 0U) || (write.value > 247U)) {

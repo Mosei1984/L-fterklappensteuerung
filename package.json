@@ -5,9 +5,11 @@
   "scripts": {
     "diagrams": "npm run diagrams:architecture && npm run diagrams:wiring",
     "diagrams:architecture": "mmdc -p docs/diagrams/puppeteer.json -i docs/diagrams/architecture.mmd -o docs/diagrams/architecture.svg",
-    "diagrams:wiring": "mmdc -p docs/diagrams/puppeteer.json -i docs/diagrams/wiring.mmd -o docs/diagrams/wiring.svg"
+    "diagrams:wiring": "mmdc -p docs/diagrams/puppeteer.json -i docs/diagrams/wiring.mmd -o docs/diagrams/wiring.svg",
+    "markdownlint": "markdownlint-cli2"
   },
   "devDependencies": {
-    "@mermaid-js/mermaid-cli": "^11.15.0"
+    "@mermaid-js/mermaid-cli": "^11.15.0",
+    "markdownlint-cli2": "^0.18.1"
   }
 }
