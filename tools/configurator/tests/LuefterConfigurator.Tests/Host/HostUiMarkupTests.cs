@@ -46,6 +46,8 @@ public sealed class HostUiMarkupTests
         Assert.Contains("Expertentest", markup, StringComparison.Ordinal);
         Assert.Contains("expert-test-column", markup, StringComparison.Ordinal);
         Assert.Contains("USB Host Test", markup, StringComparison.Ordinal);
+        Assert.Contains("data-action=\"step-test\"", markup, StringComparison.Ordinal);
+        Assert.Contains("Stepper testen", markup, StringComparison.Ordinal);
     }
 
     [Fact]

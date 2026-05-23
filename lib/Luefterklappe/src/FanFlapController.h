@@ -17,7 +17,8 @@ enum class ControllerState : std::uint8_t {
   Ready,
   ErrorDetected,
   WaitReset,
-  AutoRehome
+  AutoRehome,
+  ServiceMotorTest
 };
 
 enum class EventId : std::uint8_t {
@@ -66,7 +67,9 @@ enum class EventId : std::uint8_t {
   TmcConfigured,
   FaultReported,
   DiagnosticsReported,
-  SelfTestReported
+  SelfTestReported,
+  MotorTestStarted,
+  MotorTestFinished
 };
 
 struct Event {
@@ -187,9 +190,11 @@ class FanFlapController {
   void handleErrorDetectedState(std::uint32_t nowMs);
   void handleWaitResetState(std::uint32_t nowMs);
   void handleAutoRehomeState();
+  void handleServiceMotorTestState(std::uint32_t nowMs);
   void handleCommandText(const TextView& text);
   void handleResetCommand();
   void handleGotoDegreeCommand(const TextView& argument);
+  void handleMotorTestCommand(const TextView& argument);
   void startHomingMin();
   void startHomingMax();
   void resetMotor();

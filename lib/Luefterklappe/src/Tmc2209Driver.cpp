@@ -14,6 +14,10 @@ void Tmc2209Driver::initialize() {
 
   writeRegister(RegisterWrite{config_.gconfRegister, config_.gconfValue});
   delay_.delayMilliseconds(config_.resetDelayMs);
+  writeRegister(RegisterWrite{config_.holdRunCurrentRegister,
+                              config_.holdRunCurrentValue});
+  writeRegister(
+      RegisterWrite{config_.chopConfigRegister, config_.chopConfigValue});
   writeRegister(RegisterWrite{config_.stallGuardThresholdRegister,
                               config_.stallGuardThreshold});
 

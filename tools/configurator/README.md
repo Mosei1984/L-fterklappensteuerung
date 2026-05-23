@@ -46,7 +46,7 @@ Integrationstests laufen:
 - `POST /api/controllers/connect`
 - `PUT /api/controllers/config`
 - `POST /api/profiles/import`
-- `POST /api/commands/{home|open|half|safe|refresh-machine}`
+- `POST /api/commands/{home|open|half|safe|refresh-machine|step-test}`
 - `POST /api/gateway/{start|stop}`
 - `POST /api/firmware/check`
 - `POST /api/firmware/flash` mit Multipart-Feld `file` (`.uf2`)
@@ -54,13 +54,15 @@ Integrationstests laufen:
 - `GET /api/exports`
 - `GET /api/exports/{dateiname}`
 
-Der `safe`-Befehl schreibt nur den Safe-Wert in den Servicezustand. Eine echte Anfahrt muss weiterhin bewusst ueber Ziel-/Bewegungskommandos erfolgen.
+Der `safe`-Befehl schreibt nur den Safe-Wert. Eine echte Anfahrt muss weiterhin bewusst ueber Ziel-/Bewegungskommandos erfolgen.
 Der `refresh-machine`-Befehl sendet `REFRESH`: Fehler quittieren und neu
 referenzieren, ohne den Controller per MCU-Reset neu zu booten.
+Der `step-test`-Befehl ist ein Expertentest und sendet USB `STEPTEST 800`,
+um Treiberaktivierung, Enable-Leitung und STEP-Pin ohne Homing zu pruefen.
 
 Im normalen Hostmodus scannt `POST /api/controllers/scan` die lokalen COM-Ports passiv mit `ID?` und `SAFE?`.
 Im Testmodus wird ein Offline-Discovery verwendet, damit die Tests ohne angeschlossene Hardware deterministisch bleiben.
-Konfigurationsschreiben ist bis zum Hardwareaufbau bewusst auf Servicezustand und Befehlslog begrenzt; der passive Scan greift bereits auf den Pico zu.
+Konfigurationsschreiben sendet im normalen Hostmodus die einzelnen USB-Kommandos an den erkannten Pico-COM-Port. `ID`, `SAFE` und `STALLGUARD` koennen vor der Referenzfahrt gesetzt werden; `SOFTMIN_DEG` und `SOFTMAX_DEG` werden von der Firmware abgelehnt, solange der Controller nicht referenziert und `Ready` ist. Die API meldet diesen Fall als sichtbaren Teilerfolg statt als Scheinerfolg.
 
 ## UF2 Modus
 

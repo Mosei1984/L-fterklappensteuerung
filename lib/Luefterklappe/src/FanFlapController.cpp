@@ -11,6 +11,7 @@ constexpr std::uint16_t kMaxPermille = 1000U;
 constexpr std::uint16_t kMaxDegree = 90U;
 constexpr std::uint16_t kDefaultStallGuardThreshold = 100U;
 constexpr std::uint16_t kMaxStallGuardThreshold = 255U;
+constexpr std::int32_t kMaxMotorTestSteps = 3200;
 
 bool isSpace(const char value) {
   return (value == ' ') || (value == '\t') || (value == '\n') ||
@@ -104,6 +105,9 @@ void FanFlapController::tick(const DigitalInputs& inputs,
       break;
     case ControllerState::AutoRehome:
       handleAutoRehomeState();
+      break;
+    case ControllerState::ServiceMotorTest:
+      handleServiceMotorTestState(nowMs);
       break;
   }
 }
@@ -329,6 +333,8 @@ void FanFlapController::handleCommandText(const TextView& text) {
     emit(EventId::StallGuardThresholdReported, stallGuardThreshold_);
   } else if (readArgument(text, "STALLGUARD", argument)) {
     handleStallGuardThresholdCommand(argument);
+  } else if (readArgument(text, "MOTORTEST", argument)) {
+    handleMotorTestCommand(argument);
   } else if (equals(text, "FAULT?")) {
     emit(EventId::FaultReported,
          static_cast<std::int32_t>(lastFaultReason_), faultCount_);
@@ -369,6 +375,34 @@ void FanFlapController::handleGotoDegreeCommand(const TextView& argument) {
   }
 
   emit(EventId::MoveAccepted, acceptedTarget);
+}
+
+void FanFlapController::handleMotorTestCommand(const TextView& argument) {
+  std::int32_t steps = 0;
+
+  if (!parseInt32(argument, steps) || (steps == 0) ||
+      (steps < -kMaxMotorTestSteps) || (steps > kMaxMotorTestSteps)) {
+    emit(EventId::InvalidCommandArgument);
+    return;
+  }
+
+  if ((state_ != ControllerState::WaitReset) &&
+      (state_ != ControllerState::ErrorDetected)) {
+    emit(EventId::MotorNotReady);
+    return;
+  }
+
+  motor_.stop();
+  motor_.setDriverEnabled(true);
+  motor_.setMaxSpeed(config_.homingMaxSpeed);
+  motor_.setCurrentPosition(0);
+  motor_.moveTo(steps);
+  targetPosition_ = steps;
+  valveFreeCheckActive_ = false;
+  motionSupervisionActive_ = false;
+  moveConfirmationPending_ = false;
+  state_ = ControllerState::ServiceMotorTest;
+  emit(EventId::MotorTestStarted, steps);
 }
 
 void FanFlapController::handleInitState(const DigitalInputs& inputs) {
@@ -517,6 +551,19 @@ void FanFlapController::handleAutoRehomeState() {
   startHomingMin();
 }
 
+void FanFlapController::handleServiceMotorTestState(const std::uint32_t nowMs) {
+  motor_.run();
+
+  if (currentPosition() == targetPosition_) {
+    motor_.stop();
+    motor_.setCurrentPosition(currentPosition());
+    motor_.setDriverEnabled(false);
+    errorTimestampMs_ = nowMs;
+    state_ = ControllerState::WaitReset;
+    emit(EventId::MotorTestFinished, targetPosition_);
+  }
+}
+
 void FanFlapController::startHomingMin() {
   valveFreeCheckActive_ = false;
   motionSupervisionActive_ = false;
@@ -548,7 +595,14 @@ void FanFlapController::refreshMachine() {
 }
 
 void FanFlapController::enterError(const FaultReason reason) {
+  if ((state_ == ControllerState::ErrorDetected) ||
+      (state_ == ControllerState::WaitReset) ||
+      (state_ == ControllerState::ServiceMotorTest)) {
+    return;
+  }
+
   motor_.stop();
+  motor_.setCurrentPosition(motor_.currentPosition());
   motor_.setDriverEnabled(false);
   valveFreeCheckActive_ = false;
   motionSupervisionActive_ = false;

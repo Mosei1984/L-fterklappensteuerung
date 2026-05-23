@@ -197,6 +197,9 @@
       case "refresh-machine":
         updateValveSimulation(Number(safeSlider?.value || 250), "Neu referenziert");
         break;
+      case "step-test":
+        updateValveSimulation(Number(safeSlider?.value || 250), "Stepper Test");
+        break;
       default:
         break;
     }
@@ -397,6 +400,7 @@
     half: () => post("/api/commands/half"),
     safe: () => post("/api/commands/safe"),
     "refresh-machine": () => post("/api/commands/refresh-machine"),
+    "step-test": () => post("/api/commands/step-test"),
     gateway: () => post(gatewayMetric?.textContent === "Run" ? "/api/gateway/stop" : "/api/gateway/start"),
     firmware: () => post("/api/firmware/check"),
     "firmware-flash": () => {

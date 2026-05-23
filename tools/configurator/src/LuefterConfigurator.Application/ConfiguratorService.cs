@@ -6,18 +6,21 @@ public sealed class ConfiguratorService(
     IControllerDiscovery? discovery = null,
     IFirmwareStatusProvider? firmwareStatusProvider = null,
     IExportArtifactWriter? exportArtifactWriter = null,
-    IFirmwareFlasher? firmwareFlasher = null)
+    IFirmwareFlasher? firmwareFlasher = null,
+    IControllerCommandClient? commandClient = null)
 {
     private readonly IControllerDiscovery discovery = discovery ?? new OfflineControllerDiscovery();
     private readonly IFirmwareStatusProvider firmwareStatusProvider = firmwareStatusProvider ?? new OfflineFirmwareStatusProvider();
     private readonly IExportArtifactWriter exportArtifactWriter = exportArtifactWriter ?? new NoopExportArtifactWriter();
     private readonly IFirmwareFlasher firmwareFlasher = firmwareFlasher ?? new UnavailableFirmwareFlasher();
+    private readonly IControllerCommandClient commandClient = commandClient ?? new OfflineControllerCommandClient();
     private readonly object sync = new();
     private readonly List<ConfiguratorControllerSnapshot> controllers = [];
     private readonly List<string> log = ["> Service gestartet", "> Warte auf Controller"];
     private readonly List<string> exports = [];
     private readonly List<ExportedFile> exportFiles = [];
     private int? activeDeviceId;
+    private string? activeCommandPortName;
     private int safePositionPromille = 250;
     private int softMinDegree;
     private int softMaxDegree = 90;
@@ -47,6 +50,7 @@ public sealed class ConfiguratorService(
             if (discoveredControllers.Count == 0)
             {
                 activeDeviceId = null;
+                activeCommandPortName = null;
                 lastEvent = "Kein Controller erkannt";
                 AddLogLocked("Scan abgeschlossen: kein USB Controller gefunden");
                 return SuccessLocked("Kein Controller erkannt");
@@ -54,11 +58,16 @@ public sealed class ConfiguratorService(
 
             foreach (var controller in discoveredControllers)
             {
-                UpsertControllerLocked(controller.DeviceId, controller.TransportName, controller.FirmwareVersion);
+                UpsertControllerLocked(
+                    controller.DeviceId,
+                    controller.TransportName,
+                    controller.FirmwareVersion,
+                    controller.CommandPortName);
             }
 
             var activeController = discoveredControllers[0];
             activeDeviceId = activeController.DeviceId;
+            activeCommandPortName = activeController.CommandPortName;
             if (activeController.SafePositionPromille.HasValue)
             {
                 safePositionPromille = activeController.SafePositionPromille.Value;
@@ -84,59 +93,107 @@ public sealed class ConfiguratorService(
         }
     }
 
-    public Task<ConfiguratorOperationResult> WriteConfigAsync(ConfiguratorWriteConfigRequest request, CancellationToken cancellationToken)
+    public async Task<ConfiguratorOperationResult> WriteConfigAsync(ConfiguratorWriteConfigRequest request, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        string? portName;
+        string[] commands;
 
         lock (sync)
         {
             if (request.DeviceId is < 1 or > 247)
             {
-                return Task.FromResult(FailureLocked("Ungueltige Controller ID", "ID muss im Bereich 1..247 liegen."));
+                return FailureLocked("Ungueltige Controller ID", "ID muss im Bereich 1..247 liegen.");
             }
 
             if (request.SafePositionPromille is < 0 or > 1000)
             {
-                return Task.FromResult(FailureLocked("Ungueltige Safe Position", "Safe Position muss im Bereich 0..1000 liegen."));
+                return FailureLocked("Ungueltige Safe Position", "Safe Position muss im Bereich 0..1000 liegen.");
             }
 
             if (request.SoftMinDegree is < 0 or > 90 ||
                 request.SoftMaxDegree is < 0 or > 90 ||
                 request.SoftMinDegree > request.SoftMaxDegree)
             {
-                return Task.FromResult(FailureLocked("Ungueltige Grad-Limits", "Min/Max Grad muessen im Bereich 0..90 liegen und Min darf Max nicht ueberschreiten."));
+                return FailureLocked("Ungueltige Grad-Limits", "Min/Max Grad muessen im Bereich 0..90 liegen und Min darf Max nicht ueberschreiten.");
             }
 
             if (request.StallGuardThreshold is < 0 or > 255)
             {
-                return Task.FromResult(FailureLocked("Ungueltige StallGuard Schwelle", "StallGuard muss im Bereich 0..255 liegen."));
+                return FailureLocked("Ungueltige StallGuard Schwelle", "StallGuard muss im Bereich 0..255 liegen.");
             }
 
+            portName = activeCommandPortName;
+            commands =
+            [
+                $"ID {request.DeviceId.ToString(CultureInfo.InvariantCulture)}",
+                $"SAFE {request.SafePositionPromille.ToString(CultureInfo.InvariantCulture)}",
+                $"STALLGUARD {request.StallGuardThreshold.ToString(CultureInfo.InvariantCulture)}",
+                $"SOFTMIN_DEG {request.SoftMinDegree.ToString(CultureInfo.InvariantCulture)}",
+                $"SOFTMAX_DEG {request.SoftMaxDegree.ToString(CultureInfo.InvariantCulture)}"
+            ];
+        }
+
+        IReadOnlyList<ControllerCommandResult> commandResults;
+        try
+        {
+            commandResults = await SendCommandsAsync(portName, commands, TimeSpan.FromMilliseconds(1_800), cancellationToken);
+        }
+        catch (Exception exception) when (IsControllerCommandFailure(exception))
+        {
+            lock (sync)
+            {
+                lastEvent = "USB Schreibfehler";
+                AddLogLocked($"USB Schreibfehler: {exception.Message}");
+                return FailureLocked("Konfiguration nicht geschrieben", exception.Message);
+            }
+        }
+
+        lock (sync)
+        {
+            var rejection = FirstFirmwareRejection(commandResults);
             var previousId = activeDeviceId ?? request.DeviceId;
-            UpsertControllerLocked(request.DeviceId, "USB Serial", "offline-test");
+            UpsertControllerLocked(request.DeviceId, TransportNameForPort(portName), portName is null ? "offline-test" : "pico-live", portName);
             if (previousId != request.DeviceId)
             {
                 controllers.RemoveAll(controller => controller.DeviceId == previousId);
             }
 
             activeDeviceId = request.DeviceId;
+            activeCommandPortName = portName;
             safePositionPromille = request.SafePositionPromille;
-            softMinDegree = request.SoftMinDegree;
-            softMaxDegree = request.SoftMaxDegree;
             stallGuardThreshold = request.StallGuardThreshold;
+            var softLimitRejected =
+                CommandWasRejected(commandResults, "SOFTMIN_DEG") ||
+                CommandWasRejected(commandResults, "SOFTMAX_DEG");
+            if (!softLimitRejected)
+            {
+                softMinDegree = request.SoftMinDegree;
+                softMaxDegree = request.SoftMaxDegree;
+            }
+
+            AddCommandResultsLocked(commandResults);
+
+            if (rejection is not null)
+            {
+                lastEvent = "Konfiguration teilweise geschrieben";
+                return FailureLocked(
+                    "Konfiguration teilweise geschrieben",
+                    $"Firmware hat '{rejection.Value.Command}' abgelehnt: {rejection.Value.Line}");
+            }
+
             lastEvent = "Konfiguration geschrieben";
-            AddLogLocked($"ID {request.DeviceId.ToString(CultureInfo.InvariantCulture)}");
-            AddLogLocked($"SAFE {request.SafePositionPromille.ToString(CultureInfo.InvariantCulture)}");
-            AddLogLocked($"SOFTMIN_DEG {request.SoftMinDegree.ToString(CultureInfo.InvariantCulture)}");
-            AddLogLocked($"SOFTMAX_DEG {request.SoftMaxDegree.ToString(CultureInfo.InvariantCulture)}");
-            AddLogLocked($"STALLGUARD {request.StallGuardThreshold.ToString(CultureInfo.InvariantCulture)}");
-            return Task.FromResult(SuccessLocked("Konfiguration geschrieben"));
+            return SuccessLocked("Konfiguration geschrieben");
         }
     }
 
-    public Task<ConfiguratorOperationResult> RunCommandAsync(string command, CancellationToken cancellationToken)
+    public async Task<ConfiguratorOperationResult> RunCommandAsync(string command, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        string? portName;
+        string wireCommand;
+        string message;
+        TimeSpan timeout;
 
         lock (sync)
         {
@@ -146,28 +203,70 @@ public sealed class ConfiguratorService(
             switch (command)
             {
                 case "home":
-                    lastEvent = "Homing gestartet";
-                    AddLogLocked($"ID{id.ToString(CultureInfo.InvariantCulture)} HOME");
-                    return Task.FromResult(SuccessLocked("Homing gestartet"));
+                    wireCommand = $"ID{id.ToString(CultureInfo.InvariantCulture)} HOME";
+                    message = "Homing gestartet";
+                    timeout = TimeSpan.FromSeconds(8);
+                    break;
                 case "open":
-                    lastEvent = "Ziel 100% gesendet";
-                    AddLogLocked($"ID{id.ToString(CultureInfo.InvariantCulture)} GOTO_DEG 0");
-                    return Task.FromResult(SuccessLocked("Ziel 100% gesendet"));
+                    wireCommand = $"ID{id.ToString(CultureInfo.InvariantCulture)} GOTO_DEG 0";
+                    message = "Ziel 100% gesendet";
+                    timeout = TimeSpan.FromSeconds(8);
+                    break;
                 case "half":
-                    lastEvent = "Ziel 50% gesendet";
-                    AddLogLocked($"ID{id.ToString(CultureInfo.InvariantCulture)} GOTO_DEG 45");
-                    return Task.FromResult(SuccessLocked("Ziel 50% gesendet"));
+                    wireCommand = $"ID{id.ToString(CultureInfo.InvariantCulture)} GOTO_DEG 45";
+                    message = "Ziel 50% gesendet";
+                    timeout = TimeSpan.FromSeconds(8);
+                    break;
                 case "safe":
-                    lastEvent = "Safe Wert gesetzt";
-                    AddLogLocked($"ID{id.ToString(CultureInfo.InvariantCulture)} SAFE {safePositionPromille.ToString(CultureInfo.InvariantCulture)} gesetzt; Anfahrt erfolgt ueber Zielposition");
-                    return Task.FromResult(SuccessLocked("Safe Wert gesetzt"));
+                    wireCommand = $"ID{id.ToString(CultureInfo.InvariantCulture)} SAFE {safePositionPromille.ToString(CultureInfo.InvariantCulture)}";
+                    message = "Safe Wert gesetzt";
+                    timeout = TimeSpan.FromSeconds(2);
+                    break;
                 case "refresh-machine":
-                    lastEvent = "Machine Refresh gestartet";
-                    AddLogLocked($"ID{id.ToString(CultureInfo.InvariantCulture)} REFRESH");
-                    return Task.FromResult(SuccessLocked("Machine Refresh gestartet"));
+                    wireCommand = $"ID{id.ToString(CultureInfo.InvariantCulture)} REFRESH";
+                    message = "Machine Refresh gestartet";
+                    timeout = TimeSpan.FromSeconds(4);
+                    break;
+                case "step-test":
+                    wireCommand = "STEPTEST 800";
+                    message = "Stepper Test ausgefuehrt";
+                    timeout = TimeSpan.FromSeconds(4);
+                    break;
                 default:
-                    return Task.FromResult(FailureLocked("Unbekanntes Kommando", $"Kommando '{command}' wird nicht unterstuetzt."));
+                    return FailureLocked("Unbekanntes Kommando", $"Kommando '{command}' wird nicht unterstuetzt.");
             }
+
+            portName = activeCommandPortName;
+        }
+
+        ControllerCommandResult commandResult;
+        try
+        {
+            commandResult = await commandClient.SendAsync(portName, wireCommand, timeout, cancellationToken);
+        }
+        catch (Exception exception) when (IsControllerCommandFailure(exception))
+        {
+            lock (sync)
+            {
+                lastEvent = "USB Befehlsfehler";
+                AddLogLocked($"USB Befehlsfehler: {exception.Message}");
+                return FailureLocked($"{message} fehlgeschlagen", exception.Message);
+            }
+        }
+
+        lock (sync)
+        {
+            var rejection = FirstFirmwareRejection([commandResult]);
+            lastEvent = message;
+            AddCommandResultsLocked([commandResult]);
+            if (rejection is not null)
+            {
+                return FailureLocked(
+                    $"{message} abgelehnt",
+                    $"Firmware hat '{rejection.Value.Command}' abgelehnt: {rejection.Value.Line}");
+            }
+
+            return SuccessLocked(message);
         }
     }
 
@@ -286,6 +385,12 @@ public sealed class ConfiguratorService(
             or UnauthorizedAccessException
             or InvalidOperationException;
 
+    private static bool IsControllerCommandFailure(Exception exception)
+        => exception is IOException
+            or InvalidOperationException
+            or TimeoutException
+            or UnauthorizedAccessException;
+
     private void EnsureControllerLocked()
     {
         if (controllers.Count == 0)
@@ -295,13 +400,79 @@ public sealed class ConfiguratorService(
         }
     }
 
-    private void UpsertControllerLocked(int deviceId, string transportName, string firmwareVersion)
+    private void UpsertControllerLocked(int deviceId, string transportName, string firmwareVersion, string? commandPortName = null)
     {
         controllers.RemoveAll(controller => controller.DeviceId == deviceId);
         controllers.Add(new ConfiguratorControllerSnapshot(deviceId, activeProfileId, transportName, firmwareVersion, true));
+        activeCommandPortName = commandPortName ?? activeCommandPortName;
     }
 
     private void AddLogLocked(string line) => log.Add($"> {line}");
+
+    private async Task<IReadOnlyList<ControllerCommandResult>> SendCommandsAsync(
+        string? portName,
+        IReadOnlyList<string> commands,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        var results = new List<ControllerCommandResult>(commands.Count);
+        foreach (var command in commands)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            results.Add(await commandClient.SendAsync(portName, command, timeout, cancellationToken));
+        }
+
+        return results;
+    }
+
+    private void AddCommandResultsLocked(IReadOnlyList<ControllerCommandResult> commandResults)
+    {
+        foreach (var commandResult in commandResults)
+        {
+            AddLogLocked(commandResult.Command);
+            foreach (var line in commandResult.Lines.Take(8))
+            {
+                AddLogLocked($"< {line}");
+            }
+
+            if (commandResult.TimedOut)
+            {
+                AddLogLocked("< Zeitueberschreitung ohne vollstaendige Antwort");
+            }
+        }
+    }
+
+    private static (string Command, string Line)? FirstFirmwareRejection(IReadOnlyList<ControllerCommandResult> commandResults)
+    {
+        foreach (var commandResult in commandResults)
+        {
+            var rejectedLine = commandResult.Lines.FirstOrDefault(IsFirmwareRejectionLine);
+            if (rejectedLine is not null)
+            {
+                return (commandResult.Command, rejectedLine);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool CommandWasRejected(IReadOnlyList<ControllerCommandResult> commandResults, string commandPrefix)
+        => commandResults.Any(commandResult =>
+            commandResult.Command.StartsWith(commandPrefix, StringComparison.Ordinal) &&
+            commandResult.Lines.Any(IsFirmwareRejectionLine));
+
+    private static bool IsFirmwareRejectionLine(string line)
+    {
+        var normalized = line.ToLowerInvariant();
+        return normalized.Contains("fehler", StringComparison.Ordinal) ||
+            normalized.Contains("ungueltig", StringComparison.Ordinal) ||
+            normalized.Contains("ungültig", StringComparison.Ordinal) ||
+            normalized.Contains("nicht bereit", StringComparison.Ordinal) ||
+            normalized.Contains("unbekannter befehl", StringComparison.Ordinal);
+    }
+
+    private static string TransportNameForPort(string? portName)
+        => string.IsNullOrWhiteSpace(portName) ? "USB Serial" : $"USB Serial {portName}";
 
     private static string ExportDisplayName(string adapterId)
         => adapterId switch

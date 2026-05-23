@@ -13,9 +13,13 @@ struct Tmc2209Config {
   std::uint8_t syncByte;
   std::uint8_t slaveAddress;
   std::uint8_t gconfRegister;
+  std::uint8_t holdRunCurrentRegister;
+  std::uint8_t chopConfigRegister;
   std::uint8_t stallGuardThresholdRegister;
   std::uint8_t stallGuardResultRegister;
   std::uint32_t gconfValue;
+  std::uint32_t holdRunCurrentValue;
+  std::uint32_t chopConfigValue;
   std::uint8_t stallGuardThreshold;
   std::uint32_t resetDelayMs;
   std::uint32_t responseDelayMs;
@@ -25,9 +29,13 @@ constexpr Tmc2209Config kDefaultTmc2209Config{
     0x05U,
     0x00U,
     0x00U,
+    0x10U,
+    0x6CU,
     0x40U,
     0x41U,
-    0x00000040UL,
+    0x000001C1UL,
+    0x00081F10UL,
+    0x14030053UL,
     100U,
     10UL,
     2UL};

@@ -91,6 +91,56 @@ public sealed class ConfiguratorServiceTests
     }
 
     [Fact]
+    public async Task WriteConfigSendsSeparateFirmwareCommandsToDiscoveredUsbPort()
+    {
+        var commandClient = new FakeCommandClient();
+        var service = new ConfiguratorService(
+            new FakeDiscovery([
+                new DiscoveredController(23, "USB Serial COM10", "pico-live", 875, "COM10")
+            ]),
+            commandClient: commandClient);
+        await service.ScanAsync(CancellationToken.None);
+
+        var result = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(12, 640, 10, 80, 64), CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(
+            ["ID 12", "SAFE 640", "STALLGUARD 64", "SOFTMIN_DEG 10", "SOFTMAX_DEG 80"],
+            commandClient.Sent.Select(command => command.Command));
+        Assert.All(commandClient.Sent, command => Assert.Equal("COM10", command.PortName));
+        Assert.Contains(result.Snapshot.Log, line => line.Contains("< ACK STALLGUARD 64", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task WriteConfigReportsFirmwareRejectedSoftLimitsAsPartialFailure()
+    {
+        var commandClient = new FakeCommandClient
+        {
+            Responses =
+            {
+                ["SOFTMIN_DEG 10"] = ["Motor nicht bereit."]
+            }
+        };
+        var service = new ConfiguratorService(
+            new FakeDiscovery([
+                new DiscoveredController(1, "USB Serial COM10", "pico-live", 250, "COM10")
+            ]),
+            commandClient: commandClient);
+        await service.ScanAsync(CancellationToken.None);
+
+        var result = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 500, 10, 80, 64), CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("Konfiguration teilweise geschrieben", result.Message);
+        Assert.Contains("SOFTMIN_DEG 10", result.Error, StringComparison.Ordinal);
+        Assert.Equal(500, result.Snapshot.SafePositionPromille);
+        Assert.Equal(64, result.Snapshot.StallGuardThreshold);
+        Assert.Equal(0, result.Snapshot.SoftMinDegree);
+        Assert.Equal(90, result.Snapshot.SoftMaxDegree);
+        Assert.Contains(result.Snapshot.Log, line => line.Contains("< Motor nicht bereit.", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task SafeCommandSetsSafeValueButDoesNotPretendToMoveTheFlap()
     {
         var service = new ConfiguratorService();
@@ -103,6 +153,26 @@ public sealed class ConfiguratorServiceTests
         Assert.Contains(result.Snapshot.Log, line => line.Contains("SAFE 320", StringComparison.Ordinal));
         Assert.DoesNotContain(result.Snapshot.Log, line => line.Contains("GOTO", StringComparison.OrdinalIgnoreCase));
         Assert.Contains("gesetzt", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task StepTestCommandSendsRawStepperPulseTestThroughUsb()
+    {
+        var commandClient = new FakeCommandClient();
+        var service = new ConfiguratorService(
+            new FakeDiscovery([
+                new DiscoveredController(1, "USB Serial COM10", "pico-live", 250, "COM10")
+            ]),
+            commandClient: commandClient);
+        await service.ScanAsync(CancellationToken.None);
+
+        var result = await service.RunCommandAsync("step-test", CancellationToken.None);
+
+        Assert.True(result.Success);
+        var sent = Assert.Single(commandClient.Sent);
+        Assert.Equal("COM10", sent.PortName);
+        Assert.Equal("STEPTEST 800", sent.Command);
+        Assert.Contains(result.Snapshot.Log, line => line.Contains("STEPTEST 800", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -119,6 +189,30 @@ public sealed class ConfiguratorServiceTests
         Assert.Equal("Machine Refresh gestartet", result.Snapshot.LastEvent);
         Assert.Contains(result.Snapshot.Log, line => line.Contains("ID9 REFRESH", StringComparison.Ordinal));
         Assert.DoesNotContain(result.Snapshot.Log, line => line.Contains("RESET", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task MovementCommandReportsFirmwareNotReadyAsFailure()
+    {
+        var commandClient = new FakeCommandClient
+        {
+            Responses =
+            {
+                ["ID1 GOTO_DEG 0"] = ["Motor nicht bereit."]
+            }
+        };
+        var service = new ConfiguratorService(
+            new FakeDiscovery([
+                new DiscoveredController(1, "USB Serial COM10", "pico-live", 250, "COM10")
+            ]),
+            commandClient: commandClient);
+        await service.ScanAsync(CancellationToken.None);
+
+        var result = await service.RunCommandAsync("open", CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Contains("Motor nicht bereit", result.Error, StringComparison.Ordinal);
+        Assert.Contains(result.Snapshot.Log, line => line.Contains("ID1 GOTO_DEG 0", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -215,6 +309,27 @@ public sealed class ConfiguratorServiceTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             return Task.FromResult(controllers);
+        }
+    }
+
+    private sealed class FakeCommandClient : IControllerCommandClient
+    {
+        public List<(string? PortName, string Command, TimeSpan Timeout)> Sent { get; } = [];
+
+        public Dictionary<string, IReadOnlyList<string>> Responses { get; } = [];
+
+        public Task<ControllerCommandResult> SendAsync(
+            string? portName,
+            string command,
+            TimeSpan timeout,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Sent.Add((portName, command, timeout));
+            var response = Responses.TryGetValue(command, out var configured)
+                ? configured
+                : [$"ACK {command}"];
+            return Task.FromResult(new ControllerCommandResult(command, response, false));
         }
     }
 

@@ -11,6 +11,8 @@
 #include <PersistentSettings.h>
 #include <Tmc2209Driver.h>
 
+#include "FirmwarePins.h"
+
 #ifndef LUEFTERKLAPPE_ENABLE_WATCHDOG
 #define LUEFTERKLAPPE_ENABLE_WATCHDOG 1
 #endif
@@ -22,6 +24,7 @@
 #if LUEFTERKLAPPE_ENABLE_WATCHDOG && defined(DEVICE_WATCHDOG)
 #include "drivers/Watchdog.h"
 #endif
+#include "pico/bootrom.h"
 
 #ifndef LUEFTERKLAPPE_USE_TMC2209_UART
 #define LUEFTERKLAPPE_USE_TMC2209_UART 1
@@ -57,18 +60,18 @@ using luefterklappe::PersistentSettingsStore;
 using luefterklappe::SettingsStoragePort;
 using luefterklappe::StepperPort;
 using luefterklappe::UartPort;
+using luefterklappe::firmware::kDirPin;
+using luefterklappe::firmware::kEnablePin;
+using luefterklappe::firmware::kMaxSwitchPin;
+using luefterklappe::firmware::kMinSwitchPin;
+using luefterklappe::firmware::kStepPin;
+using luefterklappe::firmware::kTmcUartRxPin;
+using luefterklappe::firmware::kTmcUartTxPin;
 #if LUEFTERKLAPPE_USE_TMC2209_UART
 using luefterklappe::Tmc2209Driver;
 using luefterklappe::Tmc2209PollResult;
 #endif
 
-constexpr std::uint8_t kStepPin = 2U;
-constexpr std::uint8_t kDirPin = 3U;
-constexpr std::uint8_t kEnablePin = 7U;
-constexpr std::uint8_t kMinSwitchPin = 5U;
-constexpr std::uint8_t kMaxSwitchPin = 6U;
-constexpr std::uint8_t kTmcUartTxPin = 8U;
-constexpr std::uint8_t kTmcUartRxPin = 9U;
 constexpr std::uint8_t kStatusLedPin = LED_BUILTIN;
 constexpr std::uint16_t kDefaultDeviceId = LUEFTERKLAPPE_DEFAULT_DEVICE_ID;
 constexpr std::uint32_t kUsbDebugBaud = 115200UL;
@@ -81,6 +84,14 @@ constexpr std::uint32_t kInputDebounceMs = 10UL;
 constexpr std::uint32_t kLedSlowBlinkMs = 500UL;
 constexpr std::uint32_t kLedFastBlinkMs = 125UL;
 constexpr std::uint32_t kWatchdogTimeoutMs = 2000UL;
+constexpr unsigned int kStepPulseWidthUs = 20U;
+constexpr unsigned int kDirectStepHighUs = 100U;
+constexpr unsigned int kDirectStepLowUs = 900U;
+constexpr std::int32_t kMaxDirectStepTestSteps = 800;
+constexpr std::uint8_t kPinWalkPins[] = {2U, 3U, 7U};
+constexpr std::uint8_t kPinWalkPulseCounts[] = {2U, 3U, 7U};
+constexpr std::uint32_t kPinWalkPulseMs = 20UL;
+constexpr std::uint32_t kPinWalkGapMs = 80UL;
 constexpr std::size_t kMaxBusBytesPerLoop = 32U;
 constexpr std::size_t kSettingsFlashScratchSize = 4096U;
 constexpr std::size_t kSettingsFlashSlotCount = 2U;
@@ -451,6 +462,16 @@ class SerialEventSink final : public EventSink {
         output().print(F(" MAX="));
         output().println(readSwitch(kMaxSwitchPin) ? 1 : 0);
         break;
+      case EventId::MotorTestStarted:
+        output().print(F("Motor-Test gestartet: "));
+        output().print(event.first);
+        output().println(F(" Steps."));
+        break;
+      case EventId::MotorTestFinished:
+        output().print(F("Motor-Test beendet: "));
+        output().print(event.first);
+        output().println(F(" Steps."));
+        break;
     }
 
     persistSettingsFromEvent(event);
@@ -564,10 +585,168 @@ void handleCompletedCommand() {
   resetCommandBuffer();
 }
 
+bool usbCommandEquals(const char* const expected) {
+  std::size_t index = 0U;
+  while ((index < usbCommandLength) && (expected[index] != '\0')) {
+    if (usbCommandBuffer[index] != expected[index]) {
+      return false;
+    }
+    ++index;
+  }
+
+  return (index == usbCommandLength) && (expected[index] == '\0');
+}
+
+void prepareSafeOutputs();
+
+bool usbCommandArgument(const char* const command, std::int32_t& value) {
+  std::size_t index = 0U;
+  while ((index < usbCommandLength) && (command[index] != '\0')) {
+    if (usbCommandBuffer[index] != command[index]) {
+      return false;
+    }
+    ++index;
+  }
+
+  if ((command[index] != '\0') || (index >= usbCommandLength) ||
+      (usbCommandBuffer[index] != ' ')) {
+    return false;
+  }
+
+  ++index;
+  bool negative = false;
+  if ((index < usbCommandLength) && (usbCommandBuffer[index] == '-')) {
+    negative = true;
+    ++index;
+  }
+
+  if (index >= usbCommandLength) {
+    return false;
+  }
+
+  std::int32_t parsed = 0;
+  while (index < usbCommandLength) {
+    const char digit = usbCommandBuffer[index];
+    if ((digit < '0') || (digit > '9')) {
+      return false;
+    }
+    parsed = (parsed * 10) + static_cast<std::int32_t>(digit - '0');
+    ++index;
+  }
+
+  value = negative ? -parsed : parsed;
+  return true;
+}
+
+void printPinDiagnostics() {
+  Serial.print(F("PINS STEP="));
+  Serial.print(kStepPin);
+  Serial.print(F(" DIR="));
+  Serial.print(kDirPin);
+  Serial.print(F(" EN="));
+  Serial.print(kEnablePin);
+  Serial.print(F(" TMC_TX="));
+  Serial.print(kTmcUartTxPin);
+  Serial.print(F(" TMC_RX="));
+  Serial.print(kTmcUartRxPin);
+  Serial.print(F(" STEP_US="));
+  Serial.println(kStepPulseWidthUs);
+}
+
+void runDirectStepTest(const std::int32_t steps) {
+  if ((steps == 0) || (steps < -kMaxDirectStepTestSteps) ||
+      (steps > kMaxDirectStepTestSteps)) {
+    Serial.println(F("STEPTEST ungueltig."));
+    return;
+  }
+
+  const std::int32_t absoluteSteps = steps < 0 ? -steps : steps;
+  digitalWrite(kEnablePin, LOW);
+  digitalWrite(kDirPin, steps >= 0 ? HIGH : LOW);
+  delayMicroseconds(kStepPulseWidthUs);
+
+  for (std::int32_t index = 0; index < absoluteSteps; ++index) {
+    digitalWrite(kStepPin, HIGH);
+    delayMicroseconds(kDirectStepHighUs);
+    digitalWrite(kStepPin, LOW);
+    delayMicroseconds(kDirectStepLowUs);
+  }
+
+  digitalWrite(kEnablePin, HIGH);
+  Serial.print(F("STEPTEST beendet: "));
+  Serial.print(steps);
+  Serial.println(F(" Steps."));
+}
+
+void runPinWalk() {
+  Serial.println(F("PINWALK Start."));
+
+  for (std::size_t pinIndex = 0U; pinIndex < 3U; ++pinIndex) {
+    const std::uint8_t pin = kPinWalkPins[pinIndex];
+    const std::uint8_t pulseCount = kPinWalkPulseCounts[pinIndex];
+
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, LOW);
+    delay(kPinWalkPulseMs);
+    for (std::uint8_t pulse = 0U; pulse < pulseCount; ++pulse) {
+      digitalWrite(pin, HIGH);
+      delay(kPinWalkPulseMs);
+      digitalWrite(pin, LOW);
+      delay(kPinWalkPulseMs);
+    }
+    delay(kPinWalkGapMs);
+  }
+
+  prepareSafeOutputs();
+  Serial.println(F("PINWALK Ende."));
+}
+
+void runPinPulse(const std::int32_t pin) {
+  if ((pin != 2) && (pin != 3) && (pin != 7)) {
+    Serial.println(F("PINPULSE ungueltig."));
+    return;
+  }
+
+  const auto pulsePin = static_cast<std::uint8_t>(pin);
+  pinMode(pulsePin, OUTPUT);
+  digitalWrite(pulsePin, LOW);
+  delay(50);
+  for (std::uint8_t pulse = 0U; pulse < 20U; ++pulse) {
+    digitalWrite(pulsePin, HIGH);
+    delay(10);
+    digitalWrite(pulsePin, LOW);
+    delay(10);
+  }
+  prepareSafeOutputs();
+  Serial.print(F("PINPULSE beendet: GP"));
+  Serial.println(pin);
+}
+
+void rebootToBootsel() {
+  Serial.println(F("BOOTSEL Neustart."));
+  Serial.flush();
+  delay(50);
+  reset_usb_boot(1U << digitalPinToPinName(LED_BUILTIN), 0U);
+}
+
 void handleCompletedUsbCommand() {
   if (!usbCommandOverflow && (usbCommandLength > 0U)) {
     usbCommandBuffer[usbCommandLength] = '\0';
-    controller.handleCommand(usbCommandBuffer);
+    std::int32_t directStepTestSteps = 0;
+    std::int32_t pulsePin = 0;
+    if (usbCommandEquals("PINS?")) {
+      printPinDiagnostics();
+    } else if (usbCommandEquals("BOOTSEL")) {
+      rebootToBootsel();
+    } else if (usbCommandEquals("PINWALK")) {
+      runPinWalk();
+    } else if (usbCommandArgument("PINPULSE", pulsePin)) {
+      runPinPulse(pulsePin);
+    } else if (usbCommandArgument("STEPTEST", directStepTestSteps)) {
+      runDirectStepTest(directStepTestSteps);
+    } else {
+      controller.handleCommand(usbCommandBuffer);
+    }
   }
 
   resetUsbCommandBuffer();
@@ -597,6 +776,7 @@ StatusLedMode statusLedModeForState(const ControllerState state) {
       return StatusLedMode::On;
     case ControllerState::ErrorDetected:
     case ControllerState::WaitReset:
+    case ControllerState::ServiceMotorTest:
       return StatusLedMode::FastBlink;
   }
 
@@ -748,6 +928,12 @@ bool readSwitch(const std::uint8_t pin) {
 }
 
 void prepareSafeOutputs() {
+  digitalWrite(kStepPin, LOW);
+  pinMode(kStepPin, OUTPUT);
+  digitalWrite(kStepPin, LOW);
+  digitalWrite(kDirPin, LOW);
+  pinMode(kDirPin, OUTPUT);
+  digitalWrite(kDirPin, LOW);
   digitalWrite(kEnablePin, HIGH);
   pinMode(kEnablePin, OUTPUT);
   digitalWrite(kEnablePin, HIGH);
@@ -813,6 +999,8 @@ void setup() {
 #if LUEFTERKLAPPE_USE_TMC2209_UART
   tmcSerial.begin(kTmcBaud);
 #endif
+  stepper.enableOutputs();
+  stepper.setMinPulseWidth(kStepPulseWidthUs);
 
   pinMode(kMinSwitchPin, INPUT_PULLUP);
   pinMode(kMaxSwitchPin, INPUT_PULLUP);
@@ -839,7 +1027,8 @@ void loop() {
 
   bool stallGuardActive = false;
 #if LUEFTERKLAPPE_USE_TMC2209_UART
-  if (stepper.speed() != 0.0F) {
+  if ((stepper.speed() != 0.0F) &&
+      (controller.state() != ControllerState::ServiceMotorTest)) {
     const Tmc2209PollResult pollResult = tmcDriver.pollStallGuardStatus();
     if (pollResult == Tmc2209PollResult::Stalled) {
       stallGuardActive = true;

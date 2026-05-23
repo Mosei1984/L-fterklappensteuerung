@@ -13,7 +13,8 @@ using LuefterConfigurator.Profiles.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
-if (!builder.Environment.IsEnvironment("Testing"))
+var configuredUrls = builder.Configuration["urls"] ?? Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
+if (!builder.Environment.IsEnvironment("Testing") && string.IsNullOrWhiteSpace(configuredUrls))
 {
     builder.WebHost.UseUrls("http://127.0.0.1:5184");
 }
@@ -26,12 +27,14 @@ builder.Services.AddRazorPages();
 if (builder.Environment.IsEnvironment("Testing"))
 {
     builder.Services.AddSingleton<IControllerDiscovery, OfflineControllerDiscovery>();
+    builder.Services.AddSingleton<IControllerCommandClient, OfflineControllerCommandClient>();
     builder.Services.AddSingleton<IFirmwareStatusProvider, OfflineFirmwareStatusProvider>();
     builder.Services.AddSingleton<IFirmwareFlasher, OfflineFirmwareFlasher>();
 }
 else
 {
     builder.Services.AddSingleton<IControllerDiscovery, SystemSerialControllerDiscovery>();
+    builder.Services.AddSingleton<IControllerCommandClient, SystemSerialControllerCommandClient>();
     builder.Services.AddSingleton(new Uf2DriveDetector());
     builder.Services.AddSingleton<IFirmwareStatusProvider, Uf2FirmwareStatusProvider>();
     builder.Services.AddSingleton<IFirmwareFlasher, PicoUf2FirmwareUpdater>();

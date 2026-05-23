@@ -63,7 +63,8 @@ public sealed class SystemSerialControllerDiscovery : IControllerDiscovery
                 deviceId.Value,
                 $"USB Serial {portName}",
                 "pico-live",
-                safePosition is >= 0 and <= 1000 ? safePosition : null);
+                safePosition is >= 0 and <= 1000 ? safePosition : null,
+                portName);
         }
         catch (Exception exception) when (IsRecoverableSerialError(exception))
         {

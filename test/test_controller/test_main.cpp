@@ -9,6 +9,8 @@
 #include <PersistentSettings.h>
 #include <Tmc2209Driver.h>
 
+#include "../../src/FirmwarePins.h"
+
 namespace {
 
 using luefterklappe::BootReason;
@@ -57,11 +59,15 @@ class FakeStepper final : public StepperPort {
   }
   void run() override { ++runCount_; }
   void stop() override {
-    speed_ = 0.0F;
+    if (stopClearsSpeed_) {
+      speed_ = 0.0F;
+    }
     ++stopCount_;
   }
   void setCurrentPosition(const std::int32_t position) override {
     position_ = position;
+    target_ = position;
+    speed_ = 0.0F;
   }
   std::int32_t currentPosition() const override { return position_; }
   float speed() const override { return speed_; }
@@ -72,6 +78,7 @@ class FakeStepper final : public StepperPort {
   std::int32_t target_{0};
   std::int32_t position_{0};
   float speed_{0.0F};
+  bool stopClearsSpeed_{true};
   std::uint32_t runCount_{0U};
   std::uint32_t stopCount_{0U};
 };
@@ -322,6 +329,25 @@ std::uint16_t responseUint16(const FakeUart& uart, const std::size_t offset) {
       uart.written_[offset + 1U]);
 }
 
+void assertTmcWrite(const FakeUart& uart, const std::size_t offset,
+                    const std::uint8_t registerAddress,
+                    const std::uint32_t value) {
+  TEST_ASSERT_EQUAL_UINT8(0x05U, uart.written_[offset]);
+  TEST_ASSERT_EQUAL_UINT8(0x00U, uart.written_[offset + 1U]);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<std::uint8_t>(registerAddress | 0x80U),
+                          uart.written_[offset + 2U]);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<std::uint8_t>((value >> 24U) & 0xFFU),
+                          uart.written_[offset + 3U]);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<std::uint8_t>((value >> 16U) & 0xFFU),
+                          uart.written_[offset + 4U]);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<std::uint8_t>((value >> 8U) & 0xFFU),
+                          uart.written_[offset + 5U]);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<std::uint8_t>(value & 0xFFU),
+                          uart.written_[offset + 6U]);
+  TEST_ASSERT_EQUAL_UINT8(tmcCrc(&uart.written_[offset], 7U),
+                          uart.written_[offset + 7U]);
+}
+
 void bringControllerToReady(FanFlapController& controller, FakeStepper& stepper,
                             CapturingEvents& events) {
   controller.begin();
@@ -332,6 +358,14 @@ void bringControllerToReady(FanFlapController& controller, FakeStepper& stepper,
   controller.tick(DigitalInputs{false, true, false}, 7U);
   controller.tick(kNoInputs, 12U);
   events.clear();
+}
+
+void test_pico_pin_mapping_matches_current_tmc_wiring() {
+  TEST_ASSERT_EQUAL_UINT8(2U, luefterklappe::firmware::kStepPin);
+  TEST_ASSERT_EQUAL_UINT8(3U, luefterklappe::firmware::kDirPin);
+  TEST_ASSERT_EQUAL_UINT8(7U, luefterklappe::firmware::kEnablePin);
+  TEST_ASSERT_EQUAL_UINT8(8U, luefterklappe::firmware::kTmcUartTxPin);
+  TEST_ASSERT_EQUAL_UINT8(9U, luefterklappe::firmware::kTmcUartRxPin);
 }
 
 void test_persistent_settings_load_defaults_from_blank_storage() {
@@ -901,6 +935,149 @@ void test_fault_stops_and_disables_driver_in_same_tick() {
   TEST_ASSERT_FALSE(stepper.enabled_);
   TEST_ASSERT_EQUAL_FLOAT(0.0F, stepper.speed_);
   TEST_ASSERT_EQUAL_UINT32(stopCountBeforeFault + 1U, stepper.stopCount_);
+}
+
+void test_repeated_external_fault_does_not_flood_fault_counter() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.speed_ = 1.0F;
+
+  controller.reportExternalFault(FaultReason::TmcCommunicationLost);
+  TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
+  TEST_ASSERT_EQUAL_UINT16(1U, controller.faultCount());
+  TEST_ASSERT_EQUAL(
+      static_cast<std::uint16_t>(FaultReason::TmcCommunicationLost),
+      static_cast<std::uint16_t>(controller.lastFaultReason()));
+
+  controller.reportExternalFault(FaultReason::UnexpectedMinSwitch);
+  TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
+  TEST_ASSERT_EQUAL_UINT16(1U, controller.faultCount());
+  TEST_ASSERT_EQUAL(
+      static_cast<std::uint16_t>(FaultReason::TmcCommunicationLost),
+      static_cast<std::uint16_t>(controller.lastFaultReason()));
+
+  controller.tick(kNoInputs, 21U);
+  TEST_ASSERT_EQUAL(ControllerState::WaitReset, controller.state());
+  controller.reportExternalFault(FaultReason::UnexpectedMaxSwitch);
+
+  TEST_ASSERT_EQUAL(ControllerState::WaitReset, controller.state());
+  TEST_ASSERT_EQUAL_UINT16(1U, controller.faultCount());
+  TEST_ASSERT_EQUAL(
+      static_cast<std::uint16_t>(FaultReason::TmcCommunicationLost),
+      static_cast<std::uint16_t>(controller.lastFaultReason()));
+}
+
+void test_fault_latches_zero_speed_when_driver_stop_coasts() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.stopClearsSpeed_ = false;
+  stepper.speed_ = 1.0F;
+  stepper.position_ = 420;
+
+  controller.reportExternalFault(FaultReason::TmcCommunicationLost);
+
+  TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
+  TEST_ASSERT_EQUAL_FLOAT(0.0F, stepper.speed_);
+  TEST_ASSERT_EQUAL_INT32(420, stepper.currentPosition());
+  TEST_ASSERT_EQUAL_INT32(420, stepper.target_);
+}
+
+void test_motor_test_runs_bounded_steps_and_refreshes_wait_timer() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.speed_ = 1.0F;
+  controller.tick(DigitalInputs{true, false, false}, 20U);
+  controller.tick(kNoInputs, 21U);
+  TEST_ASSERT_EQUAL(ControllerState::WaitReset, controller.state());
+
+  events.clear();
+  controller.handleCommand("MOTORTEST 12");
+
+  TEST_ASSERT_EQUAL(ControllerState::ServiceMotorTest, controller.state());
+  TEST_ASSERT_TRUE(stepper.enabled_);
+  TEST_ASSERT_EQUAL_FLOAT(kFastTestConfig.homingMaxSpeed, stepper.maxSpeed_);
+  TEST_ASSERT_EQUAL_INT32(12, stepper.target_);
+  TEST_ASSERT_EQUAL(EventId::MotorTestStarted, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(12, events.last().first);
+
+  events.clear();
+  stepper.position_ = 12;
+  controller.tick(DigitalInputs{false, false, true}, 200U);
+
+  TEST_ASSERT_EQUAL(ControllerState::WaitReset, controller.state());
+  TEST_ASSERT_FALSE(stepper.enabled_);
+  TEST_ASSERT_EQUAL_FLOAT(0.0F, stepper.speed_);
+  TEST_ASSERT_EQUAL(EventId::MotorTestFinished, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(12, events.last().first);
+
+  events.clear();
+  controller.tick(kNoInputs, 201U);
+
+  TEST_ASSERT_EQUAL(ControllerState::WaitReset, controller.state());
+  TEST_ASSERT_FALSE(events.contains(EventId::AutoRehomeTimeout));
+}
+
+void test_motor_test_rejects_unsafe_state_and_invalid_step_counts() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+
+  controller.handleCommand("MOTORTEST 12");
+  TEST_ASSERT_EQUAL(ControllerState::Ready, controller.state());
+  TEST_ASSERT_TRUE(events.contains(EventId::MotorNotReady));
+
+  stepper.speed_ = 1.0F;
+  controller.tick(DigitalInputs{true, false, false}, 20U);
+  controller.tick(kNoInputs, 21U);
+  TEST_ASSERT_EQUAL(ControllerState::WaitReset, controller.state());
+
+  const char* const invalidCommands[] = {"MOTORTEST 0", "MOTORTEST 3201",
+                                         "MOTORTEST -3201", "MOTORTEST abc"};
+
+  for (const char* const command : invalidCommands) {
+    events.clear();
+    controller.handleCommand(command);
+    TEST_ASSERT_EQUAL(ControllerState::WaitReset, controller.state());
+    TEST_ASSERT_TRUE(events.contains(EventId::InvalidCommandArgument));
+  }
+}
+
+void test_motor_test_ignores_external_faults_until_bounded_motion_finishes() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.speed_ = 1.0F;
+  controller.tick(DigitalInputs{true, false, false}, 20U);
+  controller.tick(kNoInputs, 21U);
+  const std::uint16_t faultCountBeforeTest = controller.faultCount();
+
+  events.clear();
+  controller.handleCommand("MOTORTEST -8");
+  TEST_ASSERT_EQUAL(ControllerState::ServiceMotorTest, controller.state());
+
+  controller.reportExternalFault(FaultReason::TmcCommunicationLost);
+  TEST_ASSERT_EQUAL(ControllerState::ServiceMotorTest, controller.state());
+  TEST_ASSERT_EQUAL_UINT16(faultCountBeforeTest, controller.faultCount());
+
+  stepper.position_ = -8;
+  controller.tick(kNoInputs, 40U);
+
+  TEST_ASSERT_EQUAL(ControllerState::WaitReset, controller.state());
+  TEST_ASSERT_EQUAL(EventId::MotorTestFinished, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(-8, events.last().first);
 }
 
 void test_home_command_after_fault_does_not_bypass_disabled_driver() {
@@ -1812,24 +1989,12 @@ void test_tmc_driver_initializes_and_polls_stall_status() {
   TEST_ASSERT_TRUE(events.contains(EventId::TmcConfigured));
   TEST_ASSERT_EQUAL_UINT32(1U, delay.callCount_);
   TEST_ASSERT_EQUAL_UINT32(10U, delay.lastDelayMs_);
-  TEST_ASSERT_EQUAL_UINT32(2U, uart.flushCount_);
-  TEST_ASSERT_EQUAL_UINT32(16U, uart.writtenCount_);
-  TEST_ASSERT_EQUAL_UINT8(0x05U, uart.written_[0]);
-  TEST_ASSERT_EQUAL_UINT8(0x00U, uart.written_[1]);
-  TEST_ASSERT_EQUAL_UINT8(0x80U, uart.written_[2]);
-  TEST_ASSERT_EQUAL_UINT8(0x00U, uart.written_[3]);
-  TEST_ASSERT_EQUAL_UINT8(0x00U, uart.written_[4]);
-  TEST_ASSERT_EQUAL_UINT8(0x00U, uart.written_[5]);
-  TEST_ASSERT_EQUAL_UINT8(0x40U, uart.written_[6]);
-  TEST_ASSERT_EQUAL_UINT8(tmcCrc(uart.written_, 7U), uart.written_[7]);
-  TEST_ASSERT_EQUAL_UINT8(0x05U, uart.written_[8]);
-  TEST_ASSERT_EQUAL_UINT8(0x00U, uart.written_[9]);
-  TEST_ASSERT_EQUAL_UINT8(0xC0U, uart.written_[10]);
-  TEST_ASSERT_EQUAL_UINT8(0x00U, uart.written_[11]);
-  TEST_ASSERT_EQUAL_UINT8(0x00U, uart.written_[12]);
-  TEST_ASSERT_EQUAL_UINT8(0x00U, uart.written_[13]);
-  TEST_ASSERT_EQUAL_UINT8(100U, uart.written_[14]);
-  TEST_ASSERT_EQUAL_UINT8(tmcCrc(&uart.written_[8], 7U), uart.written_[15]);
+  TEST_ASSERT_EQUAL_UINT32(4U, uart.flushCount_);
+  TEST_ASSERT_EQUAL_UINT32(32U, uart.writtenCount_);
+  assertTmcWrite(uart, 0U, 0x00U, 0x000001C1UL);
+  assertTmcWrite(uart, 8U, 0x10U, 0x00081F10UL);
+  assertTmcWrite(uart, 16U, 0x6CU, 0x14030053UL);
+  assertTmcWrite(uart, 24U, 0x40U, 100U);
 
   uart.clearWritten();
   TEST_ASSERT_FALSE(driver.pollStallGuard());
@@ -1916,7 +2081,7 @@ void test_tmc_verify_communication_requires_valid_readback() {
 
   TEST_ASSERT_FALSE(driver.verifyCommunication());
 
-  queueTmcResponse(uart, 0x00U, 0x000000C0UL);
+  queueTmcResponse(uart, 0x00U, 0x000001C1UL);
   TEST_ASSERT_TRUE(driver.verifyCommunication());
 }
 
@@ -1931,6 +2096,7 @@ int main(int argc, char** argv) {
   static_cast<void>(argv);
 
   UNITY_BEGIN();
+  RUN_TEST(test_pico_pin_mapping_matches_current_tmc_wiring);
   RUN_TEST(test_persistent_settings_load_defaults_from_blank_storage);
   RUN_TEST(test_persistent_settings_save_and_reload_valid_settings);
   RUN_TEST(test_persistent_settings_reject_corrupt_or_out_of_range_data);
@@ -1958,6 +2124,11 @@ int main(int argc, char** argv) {
   RUN_TEST(test_commands_are_safe_before_ready_and_status_is_always_available);
   RUN_TEST(test_ready_faults_on_unexpected_switch_and_stall);
   RUN_TEST(test_fault_stops_and_disables_driver_in_same_tick);
+  RUN_TEST(test_repeated_external_fault_does_not_flood_fault_counter);
+  RUN_TEST(test_fault_latches_zero_speed_when_driver_stop_coasts);
+  RUN_TEST(test_motor_test_runs_bounded_steps_and_refreshes_wait_timer);
+  RUN_TEST(test_motor_test_rejects_unsafe_state_and_invalid_step_counts);
+  RUN_TEST(test_motor_test_ignores_external_faults_until_bounded_motion_finishes);
   RUN_TEST(test_home_command_after_fault_does_not_bypass_disabled_driver);
   RUN_TEST(test_move_starts_and_passes_valve_free_check);
   RUN_TEST(test_move_reached_event_is_emitted_after_target_position_is_reached);

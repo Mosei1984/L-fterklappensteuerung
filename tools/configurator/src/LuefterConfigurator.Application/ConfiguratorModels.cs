@@ -172,7 +172,8 @@ public sealed record DiscoveredController(
     int DeviceId,
     string TransportName,
     string FirmwareVersion,
-    int? SafePositionPromille = null);
+    int? SafePositionPromille = null,
+    string? CommandPortName = null);
 
 public interface IControllerDiscovery
 {
@@ -190,5 +191,32 @@ public sealed class OfflineControllerDiscovery : IControllerDiscovery
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(Controllers);
+    }
+}
+
+public sealed record ControllerCommandResult(
+    string Command,
+    IReadOnlyList<string> Lines,
+    bool TimedOut);
+
+public interface IControllerCommandClient
+{
+    Task<ControllerCommandResult> SendAsync(
+        string? portName,
+        string command,
+        TimeSpan timeout,
+        CancellationToken cancellationToken);
+}
+
+public sealed class OfflineControllerCommandClient : IControllerCommandClient
+{
+    public Task<ControllerCommandResult> SendAsync(
+        string? portName,
+        string command,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(new ControllerCommandResult(command, [$"OFFLINE {command}"], false));
     }
 }
