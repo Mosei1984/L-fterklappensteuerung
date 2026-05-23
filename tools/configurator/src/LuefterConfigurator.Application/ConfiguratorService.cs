@@ -19,6 +19,9 @@ public sealed class ConfiguratorService(
     private readonly List<ExportedFile> exportFiles = [];
     private int? activeDeviceId;
     private int safePositionPromille = 250;
+    private int softMinDegree;
+    private int softMaxDegree = 90;
+    private int stallGuardThreshold = 100;
     private bool gatewayRunning;
     private string lastEvent = "Warte auf Aktion";
     private string activeProfileId = "fanflap";
@@ -97,6 +100,18 @@ public sealed class ConfiguratorService(
                 return Task.FromResult(FailureLocked("Ungueltige Safe Position", "Safe Position muss im Bereich 0..1000 liegen."));
             }
 
+            if (request.SoftMinDegree is < 0 or > 90 ||
+                request.SoftMaxDegree is < 0 or > 90 ||
+                request.SoftMinDegree > request.SoftMaxDegree)
+            {
+                return Task.FromResult(FailureLocked("Ungueltige Grad-Limits", "Min/Max Grad muessen im Bereich 0..90 liegen und Min darf Max nicht ueberschreiten."));
+            }
+
+            if (request.StallGuardThreshold is < 0 or > 255)
+            {
+                return Task.FromResult(FailureLocked("Ungueltige StallGuard Schwelle", "StallGuard muss im Bereich 0..255 liegen."));
+            }
+
             var previousId = activeDeviceId ?? request.DeviceId;
             UpsertControllerLocked(request.DeviceId, "USB Serial", "offline-test");
             if (previousId != request.DeviceId)
@@ -106,9 +121,15 @@ public sealed class ConfiguratorService(
 
             activeDeviceId = request.DeviceId;
             safePositionPromille = request.SafePositionPromille;
+            softMinDegree = request.SoftMinDegree;
+            softMaxDegree = request.SoftMaxDegree;
+            stallGuardThreshold = request.StallGuardThreshold;
             lastEvent = "Konfiguration geschrieben";
             AddLogLocked($"ID {request.DeviceId.ToString(CultureInfo.InvariantCulture)}");
             AddLogLocked($"SAFE {request.SafePositionPromille.ToString(CultureInfo.InvariantCulture)}");
+            AddLogLocked($"SOFTMIN_DEG {request.SoftMinDegree.ToString(CultureInfo.InvariantCulture)}");
+            AddLogLocked($"SOFTMAX_DEG {request.SoftMaxDegree.ToString(CultureInfo.InvariantCulture)}");
+            AddLogLocked($"STALLGUARD {request.StallGuardThreshold.ToString(CultureInfo.InvariantCulture)}");
             return Task.FromResult(SuccessLocked("Konfiguration geschrieben"));
         }
     }
@@ -130,11 +151,11 @@ public sealed class ConfiguratorService(
                     return Task.FromResult(SuccessLocked("Homing gestartet"));
                 case "open":
                     lastEvent = "Ziel 100% gesendet";
-                    AddLogLocked($"ID{id.ToString(CultureInfo.InvariantCulture)} GOTO 12000");
+                    AddLogLocked($"ID{id.ToString(CultureInfo.InvariantCulture)} GOTO_DEG 0");
                     return Task.FromResult(SuccessLocked("Ziel 100% gesendet"));
                 case "half":
                     lastEvent = "Ziel 50% gesendet";
-                    AddLogLocked($"ID{id.ToString(CultureInfo.InvariantCulture)} GOTO 0");
+                    AddLogLocked($"ID{id.ToString(CultureInfo.InvariantCulture)} GOTO_DEG 45");
                     return Task.FromResult(SuccessLocked("Ziel 50% gesendet"));
                 case "safe":
                     lastEvent = "Safe Wert gesetzt";
@@ -303,6 +324,9 @@ public sealed class ConfiguratorService(
             controllers.ToArray(),
             activeDeviceId,
             safePositionPromille,
+            softMinDegree,
+            softMaxDegree,
+            stallGuardThreshold,
             gatewayRunning,
             lastEvent,
             log.ToArray(),

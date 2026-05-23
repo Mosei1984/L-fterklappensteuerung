@@ -32,7 +32,7 @@ flowchart TB
     Controller["FanFlapController<br/>state machine, debounce, homing, faults"]
     Modbus["ModbusRtuServer<br/>CRC16, address filter, registers"]
     Tmc["Tmc2209Driver<br/>UART datagrams, CRC, StallGuard"]
-    Settings["PersistentSettings<br/>journaled device ID + safe position, CRC"]
+    Settings["PersistentSettings<br/>journaled ID, safe position, StallGuard, CRC"]
     Ports["IoPorts interfaces<br/>StepperPort, UartPort, DelayPort, EventSink"]
   end
 
@@ -46,8 +46,8 @@ flowchart TB
 
   subgraph Quality["Quality and agent guardrails"]
     HardGate["tools/run_hard_checks.ps1<br/>all-functions gate"]
-    FirmwareTests["Firmware native tests<br/>65 cases"]
-    ConfigTests["Configurator xUnit tests<br/>61 cases + Cobertura"]
+    FirmwareTests["Firmware native tests<br/>73 cases"]
+    ConfigTests["Configurator xUnit tests<br/>65 cases + Cobertura"]
     StaticChecks["clang-tidy, cppcheck, MISRA path<br/>markdownlint, Razor, LSP logs"]
     AgentHooks["tools/agent-hooks<br/>repo and subagent policy smoke tests"]
   end

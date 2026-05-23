@@ -15,13 +15,24 @@ public static class FanFlapModbusMap
         RegisterDefinition.Holding(6, "soft_max_lo", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Soft maximum int32 low word"),
         RegisterDefinition.Holding(7, "device_id", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Persisted Modbus slave id 1..247"),
         RegisterDefinition.Holding(8, "state", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Controller state enum"),
-        RegisterDefinition.Holding(9, "flags", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Bit0 ready, bit1 fault, bit2 soft endstops active"),
+        RegisterDefinition.Holding(9, "flags", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Bit0 ready, bit1 fault, bit2 soft endstops active, bit3 moving"),
         RegisterDefinition.Holding(10, "current_steps_hi", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Current steps int32 high word"),
         RegisterDefinition.Holding(11, "current_steps_lo", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Current steps int32 low word"),
         RegisterDefinition.Holding(12, "homing_max_hi", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Homing maximum int32 high word"),
         RegisterDefinition.Holding(13, "homing_max_lo", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Homing maximum int32 low word"),
         RegisterDefinition.Holding(14, "target_promille", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Target position 0..1000 promille"),
         RegisterDefinition.Holding(15, "position_promille", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Current position 0..1000 promille"),
-        RegisterDefinition.Holding(16, "safe_position_promille", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Persisted safe position 0..1000 promille")
+        RegisterDefinition.Holding(16, "safe_position_promille", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Persisted safe position 0..1000 promille"),
+        RegisterDefinition.Holding(17, "last_fault_reason", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Stable fault reason enum"),
+        RegisterDefinition.Holding(18, "fault_count", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Saturating fault counter"),
+        RegisterDefinition.Holding(19, "settings_status", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Settings status code"),
+        RegisterDefinition.Holding(20, "tmc_health", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "TMC health code"),
+        RegisterDefinition.Holding(21, "boot_reason", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Boot reason code"),
+        RegisterDefinition.Holding(22, "firmware_protocol_version", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Firmware protocol version"),
+        RegisterDefinition.Holding(23, "target_degree", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Target angle 0 open to 90 closed"),
+        RegisterDefinition.Holding(24, "current_degree", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Current angle 0 open to 90 closed"),
+        RegisterDefinition.Holding(25, "soft_min_degree", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Minimum allowed angle in degrees"),
+        RegisterDefinition.Holding(26, "soft_max_degree", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Maximum allowed angle in degrees"),
+        RegisterDefinition.Holding(27, "stallguard_threshold", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Persisted TMC2209 SGTHRS threshold 0..255")
     ];
 }

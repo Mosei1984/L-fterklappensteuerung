@@ -26,6 +26,16 @@ void Tmc2209Driver::sendCommand(const std::uint8_t address,
   writeRegister(RegisterWrite{address, value});
 }
 
+void Tmc2209Driver::setStallGuardThreshold(const std::uint8_t threshold) {
+  config_.stallGuardThreshold = threshold;
+  writeRegister(RegisterWrite{config_.stallGuardThresholdRegister,
+                              config_.stallGuardThreshold});
+}
+
+std::uint8_t Tmc2209Driver::stallGuardThreshold() const {
+  return config_.stallGuardThreshold;
+}
+
 void Tmc2209Driver::writeRegister(const RegisterWrite write) {
   std::array<std::uint8_t, kWriteDatagramLength> datagram{{
       config_.syncByte,

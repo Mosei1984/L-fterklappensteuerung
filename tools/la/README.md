@@ -132,10 +132,11 @@ UF2-Artefakt, SHA256, Service-Textdiagnose und Modbus-Diagnoseregister. Mit
    - Erwartung: TMC-TX bleibt gueltig dekodierbar; fehlende RX-Frames werden als
      Diagnose sichtbar, nicht als falsche gueltige Responses.
 
-9. **Release-Diagnoseregister**
-   - Master liest Register `0..22` und danach `17..22`.
+9. **Release-Diagnose und Konfigurationsregister**
+   - Master liest Register `0..27`, danach `17..22` und optional `23..27`.
    - Erwartung: gueltige CRC-Frames, read-only Diagnosebereich, Schreibversuche
-     auf `17..22` liefern Illegal-Address-Exceptions.
+     auf `17..22` liefern Illegal-Address-Exceptions; Grad- und
+     StallGuard-Register bleiben innerhalb ihrer Wertebereiche.
 
 ## Offline-Analyse
 

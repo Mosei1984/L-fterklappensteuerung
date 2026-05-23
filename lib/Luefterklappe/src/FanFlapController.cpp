@@ -7,6 +7,10 @@ namespace {
 
 constexpr std::uint32_t kTimerNotStarted =
     std::numeric_limits<std::uint32_t>::max();
+constexpr std::uint16_t kMaxPermille = 1000U;
+constexpr std::uint16_t kMaxDegree = 90U;
+constexpr std::uint16_t kDefaultStallGuardThreshold = 100U;
+constexpr std::uint16_t kMaxStallGuardThreshold = 255U;
 
 bool isSpace(const char value) {
   return (value == ' ') || (value == '\t') || (value == '\n') ||
@@ -39,11 +43,13 @@ FanFlapController::FanFlapController(StepperPort& motor, EventSink& events,
       safePositionPermille_(config.safePositionPermille <= 1000U
                                 ? config.safePositionPermille
                                 : 1000U),
+      stallGuardThreshold_(kDefaultStallGuardThreshold),
       lastFaultReason_(FaultReason::None),
       faultCount_(0U),
       softEndstopsEnabled_(true),
       valveFreeCheckActive_(false),
-      motionSupervisionActive_(false) {}
+      motionSupervisionActive_(false),
+      moveConfirmationPending_(false) {}
 
 void FanFlapController::begin() {
   state_ = ControllerState::Init;
@@ -56,6 +62,7 @@ void FanFlapController::begin() {
   softEndstopsEnabled_ = true;
   valveFreeCheckActive_ = false;
   motionSupervisionActive_ = false;
+  moveConfirmationPending_ = false;
   freeCheckStartPosition_ = 0;
   lastProgressPosition_ = 0;
   lastProgressMs_ = kTimerNotStarted;
@@ -156,6 +163,10 @@ std::uint16_t FanFlapController::safePositionPermille() const {
   return safePositionPermille_;
 }
 
+std::uint8_t FanFlapController::stallGuardThreshold() const {
+  return stallGuardThreshold_;
+}
+
 FaultReason FanFlapController::lastFaultReason() const {
   return lastFaultReason_;
 }
@@ -220,6 +231,22 @@ bool FanFlapController::setSafePositionPermille(const std::uint16_t permille) {
   return true;
 }
 
+bool FanFlapController::setStallGuardThreshold(const std::uint16_t threshold) {
+  if (threshold > kMaxStallGuardThreshold) {
+    emit(EventId::StallGuardThresholdInvalid, threshold);
+    return false;
+  }
+
+  const auto acceptedThreshold = static_cast<std::uint8_t>(threshold);
+  if (stallGuardThreshold_ == acceptedThreshold) {
+    return true;
+  }
+
+  stallGuardThreshold_ = acceptedThreshold;
+  emit(EventId::StallGuardThresholdChanged, stallGuardThreshold_);
+  return true;
+}
+
 std::int32_t FanFlapController::moveTo(const std::int32_t position) {
   std::int32_t acceptedPosition = position;
 
@@ -256,7 +283,9 @@ void FanFlapController::emit(const EventId eventId, const std::int32_t first,
 void FanFlapController::handleCommandText(const TextView& text) {
   TextView argument{nullptr, 0U, 0U};
 
-  if (readArgument(text, "GOTO", argument)) {
+  if (readArgument(text, "GOTO_DEG", argument)) {
+    handleGotoDegreeCommand(argument);
+  } else if (readArgument(text, "GOTO", argument)) {
     handleGotoCommand(argument);
   } else if (equals(text, "ID?")) {
     emit(EventId::DeviceIdReported, deviceId_);
@@ -265,6 +294,9 @@ void FanFlapController::handleCommandText(const TextView& text) {
     handleDeviceIdCommand(argument);
   } else if (equals(text, "POS?")) {
     emit(EventId::PositionReported, currentPosition());
+  } else if (equals(text, "DEG?")) {
+    emit(EventId::DegreePositionReported,
+         static_cast<std::int32_t>(degreeFromPosition(currentPosition())));
   } else if (equals(text, "RESET")) {
     handleResetCommand();
   } else if (equals(text, "REFRESH") || equals(text, "REFRESH MACHINE")) {
@@ -272,19 +304,31 @@ void FanFlapController::handleCommandText(const TextView& text) {
   } else if (equals(text, "HOME")) {
     emit(EventId::ManualHomingStarted);
     resetMotor();
+  } else if (readArgument(text, "SOFTMIN_DEG", argument)) {
+    handleSoftMinDegreeCommand(argument);
   } else if (readArgument(text, "SOFTMIN", argument)) {
     handleSoftMinCommand(argument);
+  } else if (readArgument(text, "SOFTMAX_DEG", argument)) {
+    handleSoftMaxDegreeCommand(argument);
   } else if (readArgument(text, "SOFTMAX", argument)) {
     handleSoftMaxCommand(argument);
   } else if (equals(text, "SOFTENDSTOPS?")) {
     emit(EventId::SoftEndstopsStatus, softMinPosition_, softMaxPosition_,
          softEndstopsEnabled_);
+  } else if (equals(text, "DEGLIMITS?")) {
+    emit(EventId::DegreeLimitsReported,
+         static_cast<std::int32_t>(degreeFromPosition(softMaxPosition_)),
+         static_cast<std::int32_t>(degreeFromPosition(softMinPosition_)));
   } else if (readArgument(text, "SOFTENDSTOPS", argument)) {
     handleSoftEndstopsCommand(argument);
   } else if (equals(text, "SAFE?")) {
     emit(EventId::SafePositionReported, safePositionPermille_);
   } else if (readArgument(text, "SAFE", argument)) {
     handleSafePositionCommand(argument);
+  } else if (equals(text, "STALLGUARD?")) {
+    emit(EventId::StallGuardThresholdReported, stallGuardThreshold_);
+  } else if (readArgument(text, "STALLGUARD", argument)) {
+    handleStallGuardThresholdCommand(argument);
   } else if (equals(text, "FAULT?")) {
     emit(EventId::FaultReported,
          static_cast<std::int32_t>(lastFaultReason_), faultCount_);
@@ -307,6 +351,24 @@ void FanFlapController::handleResetCommand() {
   } else {
     emit(EventId::ResetIgnored);
   }
+}
+
+void FanFlapController::handleGotoDegreeCommand(const TextView& argument) {
+  std::int32_t value = 0;
+  std::int32_t acceptedTarget = 0;
+
+  if (!parseInt32(argument, value) || (value < 0) ||
+      (value > static_cast<std::int32_t>(kMaxDegree))) {
+    emit(EventId::InvalidCommandArgument);
+    return;
+  }
+
+  if (!requestMoveTo(positionFromDegree(static_cast<std::uint16_t>(value)),
+                     acceptedTarget)) {
+    return;
+  }
+
+  emit(EventId::MoveAccepted, acceptedTarget);
 }
 
 void FanFlapController::handleInitState(const DigitalInputs& inputs) {
@@ -458,6 +520,7 @@ void FanFlapController::handleAutoRehomeState() {
 void FanFlapController::startHomingMin() {
   valveFreeCheckActive_ = false;
   motionSupervisionActive_ = false;
+  moveConfirmationPending_ = false;
   motor_.setMaxSpeed(config_.homingMaxSpeed);
   motor_.moveTo(-homingTravelSteps());
   state_ = ControllerState::HomingMin;
@@ -467,6 +530,7 @@ void FanFlapController::startHomingMin() {
 void FanFlapController::startHomingMax() {
   valveFreeCheckActive_ = false;
   motionSupervisionActive_ = false;
+  moveConfirmationPending_ = false;
   motor_.setMaxSpeed(config_.homingMaxSpeed);
   motor_.moveTo(homingTravelSteps());
   state_ = ControllerState::HomingMax;
@@ -478,6 +542,7 @@ void FanFlapController::refreshMachine() {
   motor_.stop();
   valveFreeCheckActive_ = false;
   motionSupervisionActive_ = false;
+  moveConfirmationPending_ = false;
   emit(EventId::MachineRefreshStarted);
   resetMotor();
 }
@@ -487,6 +552,7 @@ void FanFlapController::enterError(const FaultReason reason) {
   motor_.setDriverEnabled(false);
   valveFreeCheckActive_ = false;
   motionSupervisionActive_ = false;
+  moveConfirmationPending_ = false;
   lastFaultReason_ = reason;
   if (faultCount_ < 0xFFFFU) {
     ++faultCount_;
@@ -521,20 +587,43 @@ std::int32_t FanFlapController::positionFromPermille(
       (static_cast<std::int64_t>(maxPosition_) * permille) / 1000LL);
 }
 
+std::uint16_t FanFlapController::permilleFromPosition(
+    const std::int32_t position) const {
+  if (maxPosition_ <= 0) {
+    return 0U;
+  }
+
+  if (position <= 0) {
+    return 0U;
+  }
+
+  if (position >= maxPosition_) {
+    return kMaxPermille;
+  }
+
+  return static_cast<std::uint16_t>(
+      (static_cast<std::int64_t>(position) * kMaxPermille) / maxPosition_);
+}
+
 void FanFlapController::beginMotionSupervision() {
   lastProgressPosition_ = currentPosition();
   lastProgressMs_ = kTimerNotStarted;
   motionSupervisionActive_ = targetPosition_ != currentPosition();
+  moveConfirmationPending_ = true;
 }
 
 void FanFlapController::updateMotionSupervision(const std::uint32_t nowMs) {
-  if (!motionSupervisionActive_) {
+  const std::int32_t current = currentPosition();
+  if (moveConfirmationPending_ && (current == targetPosition_)) {
+    moveConfirmationPending_ = false;
+    motionSupervisionActive_ = false;
+    emit(EventId::MoveReached, targetPosition_,
+         static_cast<std::int32_t>(permilleFromPosition(current)), false,
+         static_cast<std::int32_t>(degreeFromPosition(current)));
     return;
   }
 
-  const std::int32_t current = currentPosition();
-  if (current == targetPosition_) {
-    motionSupervisionActive_ = false;
+  if (!motionSupervisionActive_) {
     return;
   }
 
@@ -674,6 +763,38 @@ void FanFlapController::handleSoftMaxCommand(const TextView& argument) {
   }
 }
 
+void FanFlapController::handleSoftMinDegreeCommand(const TextView& argument) {
+  std::int32_t value = 0;
+
+  if (!parseInt32(argument, value) || (value < 0) ||
+      (value > static_cast<std::int32_t>(kMaxDegree))) {
+    emit(EventId::InvalidCommandArgument);
+    return;
+  }
+
+  if (requireReady()) {
+    static_cast<void>(setSoftEndstopsDegrees(
+        static_cast<std::uint16_t>(value),
+        degreeFromPosition(softMinPosition_)));
+  }
+}
+
+void FanFlapController::handleSoftMaxDegreeCommand(const TextView& argument) {
+  std::int32_t value = 0;
+
+  if (!parseInt32(argument, value) || (value < 0) ||
+      (value > static_cast<std::int32_t>(kMaxDegree))) {
+    emit(EventId::InvalidCommandArgument);
+    return;
+  }
+
+  if (requireReady()) {
+    static_cast<void>(setSoftEndstopsDegrees(
+        degreeFromPosition(softMaxPosition_),
+        static_cast<std::uint16_t>(value)));
+  }
+}
+
 void FanFlapController::handleSoftEndstopsCommand(const TextView& argument) {
   if (equals(argument, "ON")) {
     static_cast<void>(setSoftEndstopsEnabled(true));
@@ -705,6 +826,32 @@ void FanFlapController::handleSafePositionCommand(const TextView& argument) {
 
   static_cast<void>(
       setSafePositionPermille(static_cast<std::uint16_t>(value)));
+}
+
+void FanFlapController::handleStallGuardThresholdCommand(
+    const TextView& argument) {
+  std::int32_t value = 0;
+
+  if (!parseInt32(argument, value) || (value < 0) ||
+      (value > static_cast<std::int32_t>(kMaxStallGuardThreshold))) {
+    emit(EventId::StallGuardThresholdInvalid, value);
+    return;
+  }
+
+  static_cast<void>(
+      setStallGuardThreshold(static_cast<std::uint16_t>(value)));
+}
+
+bool FanFlapController::setSoftEndstopsDegrees(
+    const std::uint16_t minDegree, const std::uint16_t maxDegree) {
+  if ((minDegree > kMaxDegree) || (maxDegree > kMaxDegree) ||
+      (minDegree > maxDegree)) {
+    emit(EventId::SoftEndstopRangeInvalid, minDegree, maxDegree);
+    return false;
+  }
+
+  return setSoftEndstops(SoftEndstopRange{positionFromDegree(maxDegree),
+                                          positionFromDegree(minDegree)});
 }
 
 FaultReason FanFlapController::unexpectedSwitchReason(
@@ -745,6 +892,41 @@ std::int32_t FanFlapController::motionProgressMinSteps() const {
   }
 
   return config_.motionProgressMinSteps;
+}
+
+std::int32_t FanFlapController::positionFromDegree(
+    const std::uint16_t degree) const {
+  if (maxPosition_ <= 0) {
+    return 0;
+  }
+
+  if (degree >= kMaxDegree) {
+    return 0;
+  }
+
+  return static_cast<std::int32_t>(
+      (static_cast<std::int64_t>(maxPosition_) *
+       (static_cast<std::int64_t>(kMaxDegree) - degree)) /
+      kMaxDegree);
+}
+
+std::uint16_t FanFlapController::degreeFromPosition(
+    const std::int32_t position) const {
+  if (maxPosition_ <= 0) {
+    return 0U;
+  }
+
+  if (position <= 0) {
+    return kMaxDegree;
+  }
+
+  if (position >= maxPosition_) {
+    return 0U;
+  }
+
+  return static_cast<std::uint16_t>(
+      (static_cast<std::int64_t>(maxPosition_ - position) * kMaxDegree) /
+      maxPosition_);
 }
 
 FanFlapController::TextView FanFlapController::trim(const char* const text) {

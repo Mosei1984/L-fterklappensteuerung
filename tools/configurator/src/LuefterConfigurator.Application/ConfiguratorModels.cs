@@ -13,6 +13,9 @@ public sealed record ConfiguratorSnapshot(
     IReadOnlyList<ConfiguratorControllerSnapshot> Controllers,
     int? ActiveDeviceId,
     int SafePositionPromille,
+    int SoftMinDegree,
+    int SoftMaxDegree,
+    int StallGuardThreshold,
     bool GatewayRunning,
     string LastEvent,
     IReadOnlyList<string> Log,
@@ -27,7 +30,12 @@ public sealed record ConfiguratorOperationResult(
     ConfiguratorSnapshot Snapshot,
     string? Error = null);
 
-public sealed record ConfiguratorWriteConfigRequest(int DeviceId, int SafePositionPromille);
+public sealed record ConfiguratorWriteConfigRequest(
+    int DeviceId,
+    int SafePositionPromille,
+    int SoftMinDegree = 0,
+    int SoftMaxDegree = 90,
+    int StallGuardThreshold = 100);
 
 public sealed record ConfiguratorProfileImportRequest(string Json);
 

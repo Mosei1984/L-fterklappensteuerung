@@ -11,8 +11,14 @@
   const nextStep = document.querySelector("[data-next-step]");
   const controllerId = document.querySelector("[data-controller-id]");
   const safeSlider = document.querySelector("[data-safe-slider]");
+  const softMinDegree = document.querySelector("[data-soft-min-degree]");
+  const softMaxDegree = document.querySelector("[data-soft-max-degree]");
+  const stallGuardThreshold = document.querySelector("[data-stallguard-threshold]");
   const safeOutput = document.querySelector("[data-safe-output]");
   const safeChip = document.querySelector("[data-safe-chip]");
+  const valveSimulation = document.querySelector(".valve-simulation");
+  const valvePercent = document.querySelector("[data-valve-percent]");
+  const valveLabel = document.querySelector("[data-valve-label]");
   const firmwareMode = document.querySelector("[data-firmware-mode]");
   const firmwareError = document.querySelector("[data-firmware-error]");
   const firmwareFlash = document.querySelector("[data-firmware-flash]");
@@ -22,6 +28,7 @@
   const wizardSteps = Array.from(document.querySelectorAll("[data-wizard-step]"));
   const wizardBack = document.querySelector("[data-wizard-back]");
   const wizardNext = document.querySelector("[data-wizard-next]");
+  const wizardAction = document.querySelector("[data-wizard-action]");
   const wizardStatus = document.querySelector("[data-wizard-status]");
   const wizardHeading = document.querySelector("[data-wizard-heading]");
   const wizardCopy = document.querySelector("[data-wizard-copy]");
@@ -33,12 +40,21 @@
   "transports": ["UsbText"],
   "settings": [
     {"key":"device.id","displayName":"Device ID","minimum":1,"maximum":247,"unit":"id"},
-    {"key":"safe.position","displayName":"Safe Position","minimum":0,"maximum":1000,"unit":"promille"}
+    {"key":"safe.position","displayName":"Sichere Stellung","minimum":0,"maximum":1000,"unit":"promille"},
+    {"key":"soft.min.degree","displayName":"Min Winkel","minimum":0,"maximum":90,"unit":"degree"},
+    {"key":"soft.max.degree","displayName":"Max Winkel","minimum":0,"maximum":90,"unit":"degree"},
+    {"key":"stallguard.threshold","displayName":"StallGuard Threshold","minimum":0,"maximum":255,"unit":"sgthrs"}
   ],
   "registers": [
     {"kind":"Holding","address":0,"name":"command","valueType":"UInt16","access":"ReadWrite"},
     {"kind":"Holding","address":7,"name":"device_id","valueType":"UInt16","access":"ReadWrite"},
-    {"kind":"Holding","address":16,"name":"safe_position","valueType":"UInt16","access":"ReadWrite"}
+    {"kind":"Holding","address":16,"name":"safe_position_promille","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":22,"name":"firmware_protocol_version","valueType":"UInt16","access":"ReadOnly"},
+    {"kind":"Holding","address":23,"name":"target_degree","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":24,"name":"current_degree","valueType":"UInt16","access":"ReadOnly"},
+    {"kind":"Holding","address":25,"name":"soft_min_degree","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":26,"name":"soft_max_degree","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":27,"name":"stallguard_threshold","valueType":"UInt16","access":"ReadWrite"}
   ]
 }`;
 
@@ -55,27 +71,39 @@
   const wizardDetails = [
     {
       title: "Loxone vorbereiten",
-      copy: "Gateway-IP, Port 5020 und die spaetere Controller-ID festlegen. Danach kann die Loxone-Importdatei exakt erzeugt werden."
+      copy: "Gateway-IP, Port 5020 und die spaetere Controller-ID festlegen. Danach fuehrt der Wizard direkt zur Pico-Suche.",
+      actionLabel: "Weiter",
+      action: null
     },
     {
       title: "Pico erkennen",
-      copy: "USB verbinden, Portscan starten und vorhandene ID sowie Safe-Position passiv auslesen."
+      copy: "Pico per USB anschliessen, Suche starten und vorhandene ID sowie sichere Stellung passiv auslesen.",
+      actionLabel: "Pico suchen",
+      action: "scan"
     },
     {
       title: "Firmware flashen",
-      copy: "UF2-Modus pruefen, Firmwaredatei auswaehlen und Flashstatus im Wartungsbereich kontrollieren."
+      copy: "UF2-Modus pruefen. Wenn der Pico schon die richtige Firmware meldet, kann dieser Schritt uebersprungen werden.",
+      actionLabel: "UF2 pruefen",
+      action: "firmware"
     },
     {
-      title: "ID und Safe State schreiben",
-      copy: "Controller-ID, Safe-Position und Softlimits setzen. Werte danach erneut auslesen."
+      title: "ID, Winkel und StallGuard schreiben",
+      copy: "Controller-ID, sichere Stellung, Grad-Limits und StallGuard-Schwelle setzen. Der Wizard schreibt nur die sichtbaren Werte.",
+      actionLabel: "Werte schreiben",
+      action: "write-config"
     },
     {
       title: "Loxone Export herunterladen",
-      copy: "Export testen erzeugt XML, JSON und Markdown. Die Dateien stehen direkt als Downloadlinks bereit."
+      copy: "Export erzeugen erstellt Loxone XML, JSON und Markdown. Die Dateien erscheinen direkt als Downloadlinks.",
+      actionLabel: "Export erzeugen",
+      action: "export"
     },
     {
       title: "Abschlusscheck",
-      copy: "Statusregister lesen, Gateway pruefen und den sicheren Fehlerzustand fuer die Anlage dokumentieren."
+      copy: "Pico noch einmal suchen, Online-Status und sichere Stellung kontrollieren und die Anlage dokumentieren.",
+      actionLabel: "Abschluss pruefen",
+      action: "scan"
     }
   ];
 
@@ -95,7 +123,8 @@
       wizardBack.disabled = wizardIndex === 0;
     }
     if (wizardNext) {
-      wizardNext.textContent = wizardIndex === wizardSteps.length - 1 ? "Fertig" : "Weiter";
+      wizardNext.textContent = wizardIndex === wizardSteps.length - 1 ? "Fertig" : "Ueberspringen";
+      wizardNext.classList.toggle("is-hidden", !wizardDetails[wizardIndex]?.action);
     }
     if (wizardStatus) {
       wizardStatus.textContent = `Schritt ${wizardIndex + 1} von ${wizardSteps.length}`;
@@ -105,6 +134,10 @@
     }
     if (wizardCopy && wizardDetails[wizardIndex]) {
       wizardCopy.textContent = wizardDetails[wizardIndex].copy;
+    }
+    if (wizardAction && wizardDetails[wizardIndex]) {
+      wizardAction.textContent = wizardDetails[wizardIndex].actionLabel;
+      wizardAction.setAttribute("aria-label", `${wizardDetails[wizardIndex].actionLabel}: Schritt ${wizardIndex + 1}`);
     }
   };
 
@@ -129,6 +162,46 @@
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
 
+  const clampPermille = (value) => Math.min(1000, Math.max(0, Number.isFinite(value) ? value : 0));
+
+  const updateValveSimulation = (permille, label = "Sichere Stellung") => {
+    const safePermille = clampPermille(Number(permille));
+    const percent = Math.round(safePermille / 10);
+    const angle = 90 - (safePermille / 1000) * 90;
+
+    valveSimulation?.style.setProperty("--valve-angle", `${angle.toFixed(1)}deg`);
+    if (valvePercent) {
+      valvePercent.textContent = `${percent}%`;
+    }
+    if (valveLabel) {
+      valveLabel.textContent = label;
+    }
+  };
+
+  const setValveSimulation = (action) => {
+    switch (action) {
+      case "open":
+        updateValveSimulation(1000, "Ganz offen");
+        break;
+      case "half":
+        updateValveSimulation(500, "Halb offen");
+        break;
+      case "safe":
+      case "write-config":
+      case "scan":
+        updateValveSimulation(Number(safeSlider?.value || 250), "Sichere Stellung");
+        break;
+      case "home":
+        updateValveSimulation(0, "Referenzfahrt");
+        break;
+      case "refresh-machine":
+        updateValveSimulation(Number(safeSlider?.value || 250), "Neu referenziert");
+        break;
+      default:
+        break;
+    }
+  };
+
   const setStatus = (isOnline) => {
     if (statusPill) {
       statusPill.classList.toggle("online", isOnline);
@@ -152,7 +225,7 @@
           <span class="device-dot pending" aria-hidden="true"></span>
           <span>
             <strong>Kein Controller verbunden</strong>
-            <small>Scan starten oder USB verbinden</small>
+            <small>Pico per USB anschliessen und Suche starten</small>
           </span>
           <em>offline</em>
         </button>`;
@@ -178,6 +251,9 @@
     const controllers = Array.isArray(snapshot.controllers) ? snapshot.controllers : [];
     const activeId = snapshot.activeDeviceId ?? "-";
     const safePosition = snapshot.safePositionPromille ?? 250;
+    const minDegree = snapshot.softMinDegree ?? 0;
+    const maxDegree = snapshot.softMaxDegree ?? 90;
+    const stallGuard = snapshot.stallGuardThreshold ?? 100;
     const isOnline = controllers.some((controller) => controller.isOnline);
 
     setStatus(isOnline);
@@ -201,6 +277,16 @@
     if (safeSlider) {
       safeSlider.value = String(safePosition);
     }
+    if (softMinDegree) {
+      softMinDegree.value = String(minDegree);
+    }
+    if (softMaxDegree) {
+      softMaxDegree.value = String(maxDegree);
+    }
+    if (stallGuardThreshold) {
+      stallGuardThreshold.value = String(stallGuard);
+    }
+    updateValveSimulation(safePosition, "Sichere Stellung");
     if (controllerId && snapshot.activeDeviceId) {
       controllerId.value = String(snapshot.activeDeviceId);
     }
@@ -300,7 +386,10 @@
       method: "PUT",
       body: JSON.stringify({
         deviceId: Number(controllerId?.value || 1),
-        safePositionPromille: Number(safeSlider?.value || 250)
+        safePositionPromille: Number(safeSlider?.value || 250),
+        softMinDegree: Number(softMinDegree?.value || 0),
+        softMaxDegree: Number(softMaxDegree?.value || 90),
+        stallGuardThreshold: Number(stallGuardThreshold?.value || 100)
       })
     }),
     home: () => post("/api/commands/home"),
@@ -317,35 +406,7 @@
     export: () => post("/api/exports")
   };
 
-  document.addEventListener("click", async (event) => {
-    const target = event.target.closest("[data-action]");
-    if (!target) {
-      return;
-    }
-
-    const action = target.getAttribute("data-action");
-    if (!action || !actions[action]) {
-      return;
-    }
-
-    target.setAttribute("aria-busy", "true");
-    try {
-      await actions[action]();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unbekannter Fehler";
-      appendLog(`Fehler: ${message}`);
-      showToast(message);
-    } finally {
-      target.removeAttribute("aria-busy");
-    }
-  });
-
-  wizardBack?.addEventListener("click", () => {
-    wizardIndex = Math.max(0, wizardIndex - 1);
-    updateWizard();
-  });
-
-  wizardNext?.addEventListener("click", () => {
+  const advanceWizard = () => {
     if (!wizardSteps.length) {
       return;
     }
@@ -357,7 +418,72 @@
 
     wizardIndex += 1;
     updateWizard();
+  };
+
+  const runAction = async (action, target) => {
+    target?.setAttribute("aria-busy", "true");
+    try {
+      await actions[action]();
+      setValveSimulation(action);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unbekannter Fehler";
+      appendLog(`Fehler: ${message}`);
+      showToast(message);
+      return false;
+    } finally {
+      target?.removeAttribute("aria-busy");
+    }
+  };
+
+  const runWizardAction = async () => {
+    const details = wizardDetails[wizardIndex];
+    if (!details) {
+      return;
+    }
+
+    if (!details.action) {
+      advanceWizard();
+      return;
+    }
+
+    const succeeded = await runAction(details.action, wizardAction);
+    if (!succeeded) {
+      return;
+    }
+
+    if (wizardIndex >= wizardSteps.length - 1) {
+      showToast("Abschlusscheck aktualisiert");
+      return;
+    }
+
+    advanceWizard();
+  };
+
+  document.addEventListener("click", async (event) => {
+    const target = event.target.closest("[data-action]");
+    if (!target) {
+      return;
+    }
+
+    const action = target.getAttribute("data-action");
+    if (!action || !actions[action]) {
+      return;
+    }
+
+    await runAction(action, target);
   });
+
+  wizardBack?.addEventListener("click", () => {
+    wizardIndex = Math.max(0, wizardIndex - 1);
+    updateWizard();
+  });
+
+  wizardNext?.addEventListener("click", () => {
+    advanceWizard();
+  });
+
+  wizardAction?.addEventListener("click", runWizardAction);
 
   wizardSteps.forEach((step, index) => {
     step.addEventListener("click", () => {
@@ -373,6 +499,7 @@
     if (safeChip) {
       safeChip.textContent = `${safeSlider.value} / 1000`;
     }
+    updateValveSimulation(Number(safeSlider.value), "Sichere Stellung");
   });
 
   firmwareFileInput?.addEventListener("change", async () => {

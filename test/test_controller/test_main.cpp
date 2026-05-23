@@ -97,6 +97,17 @@ class CapturingEvents final : public EventSink {
     return false;
   }
 
+  std::size_t count(const EventId id) const {
+    std::size_t matches = 0U;
+    for (std::size_t index = 0U; index < count_; ++index) {
+      if (events_[index].id == id) {
+        ++matches;
+      }
+    }
+
+    return matches;
+  }
+
   Event last() const {
     if (count_ == 0U) {
       return Event{EventId::UnknownCommand, 0, 0, false};
@@ -336,7 +347,7 @@ void test_persistent_settings_load_defaults_from_blank_storage() {
 void test_persistent_settings_save_and_reload_valid_settings() {
   FakeSettingsStorage storage;
   PersistentSettingsStore writer(storage);
-  const PersistentSettings saved{42U, 250U};
+  const PersistentSettings saved{42U, 250U, 64U};
 
   TEST_ASSERT_TRUE(writer.save(saved));
   TEST_ASSERT_EQUAL_UINT32(1U, storage.writeCount_);
@@ -347,6 +358,8 @@ void test_persistent_settings_save_and_reload_valid_settings() {
   TEST_ASSERT_EQUAL_UINT8(saved.deviceId, loaded.deviceId);
   TEST_ASSERT_EQUAL_UINT16(saved.safePositionPermille,
                            loaded.safePositionPermille);
+  TEST_ASSERT_EQUAL_UINT8(saved.stallGuardThreshold,
+                          loaded.stallGuardThreshold);
 }
 
 void test_persistent_settings_reject_corrupt_or_out_of_range_data() {
@@ -359,49 +372,54 @@ void test_persistent_settings_reject_corrupt_or_out_of_range_data() {
   PersistentSettings loaded = store.load();
   TEST_ASSERT_EQUAL_UINT8(1U, loaded.deviceId);
   TEST_ASSERT_EQUAL_UINT16(1000U, loaded.safePositionPermille);
+  TEST_ASSERT_EQUAL_UINT8(100U, loaded.stallGuardThreshold);
 
   TEST_ASSERT_FALSE(store.save(PersistentSettings{248U, 1001U}));
   loaded = store.load();
   TEST_ASSERT_EQUAL_UINT8(1U, loaded.deviceId);
   TEST_ASSERT_EQUAL_UINT16(1000U, loaded.safePositionPermille);
+  TEST_ASSERT_EQUAL_UINT8(100U, loaded.stallGuardThreshold);
 }
 
 void test_persistent_settings_loads_newest_valid_record() {
   FakeSettingsStorage storage;
   PersistentSettingsStore store(storage);
 
-  TEST_ASSERT_TRUE(store.save(PersistentSettings{7U, 750U}));
-  TEST_ASSERT_TRUE(store.save(PersistentSettings{8U, 250U}));
+  TEST_ASSERT_TRUE(store.save(PersistentSettings{7U, 750U, 90U}));
+  TEST_ASSERT_TRUE(store.save(PersistentSettings{8U, 250U, 55U}));
 
   const PersistentSettings loaded = store.load();
   TEST_ASSERT_EQUAL_UINT8(8U, loaded.deviceId);
   TEST_ASSERT_EQUAL_UINT16(250U, loaded.safePositionPermille);
+  TEST_ASSERT_EQUAL_UINT8(55U, loaded.stallGuardThreshold);
 }
 
 void test_persistent_settings_falls_back_to_previous_slot_after_corruption() {
   FakeSettingsStorage storage;
   PersistentSettingsStore store(storage);
 
-  TEST_ASSERT_TRUE(store.save(PersistentSettings{7U, 750U}));
-  TEST_ASSERT_TRUE(store.save(PersistentSettings{8U, 250U}));
+  TEST_ASSERT_TRUE(store.save(PersistentSettings{7U, 750U, 88U}));
+  TEST_ASSERT_TRUE(store.save(PersistentSettings{8U, 250U, 55U}));
   storage.corruptByte(16U);
 
   const PersistentSettings loaded = store.load();
   TEST_ASSERT_EQUAL_UINT8(7U, loaded.deviceId);
   TEST_ASSERT_EQUAL_UINT16(750U, loaded.safePositionPermille);
+  TEST_ASSERT_EQUAL_UINT8(88U, loaded.stallGuardThreshold);
 }
 
 void test_persistent_settings_survives_target_slot_write_failure() {
   FakeSettingsStorage storage;
   PersistentSettingsStore store(storage);
 
-  TEST_ASSERT_TRUE(store.save(PersistentSettings{7U, 750U}));
+  TEST_ASSERT_TRUE(store.save(PersistentSettings{7U, 750U, 88U}));
   storage.failNextWriteForSlot(1U);
-  TEST_ASSERT_FALSE(store.save(PersistentSettings{8U, 250U}));
+  TEST_ASSERT_FALSE(store.save(PersistentSettings{8U, 250U, 55U}));
 
   const PersistentSettings loaded = store.load();
   TEST_ASSERT_EQUAL_UINT8(7U, loaded.deviceId);
   TEST_ASSERT_EQUAL_UINT16(750U, loaded.safePositionPermille);
+  TEST_ASSERT_EQUAL_UINT8(88U, loaded.stallGuardThreshold);
 }
 
 void test_homing_sequence_sets_range_and_midpoint() {
@@ -507,6 +525,95 @@ void test_safe_position_commands_validate_and_report_permille() {
   controller.handleCommand("SAFE 1001");
   TEST_ASSERT_EQUAL_UINT16(250U, controller.safePositionPermille());
   TEST_ASSERT_TRUE(events.contains(EventId::SafePositionInvalid));
+}
+
+void test_degree_position_commands_move_and_report_angle() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.position_ = 800;
+
+  controller.handleCommand("DEG?");
+  TEST_ASSERT_EQUAL(EventId::DegreePositionReported, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(0, events.last().first);
+
+  events.clear();
+  controller.handleCommand("GOTO_DEG 45");
+  TEST_ASSERT_EQUAL_INT32(400, controller.targetPosition());
+  TEST_ASSERT_EQUAL_INT32(400, stepper.target_);
+  TEST_ASSERT_EQUAL(EventId::MoveAccepted, events.last().id);
+
+  events.clear();
+  stepper.position_ = 400;
+  controller.tick(kNoInputs, 20U);
+  TEST_ASSERT_EQUAL(EventId::MoveReached, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(400, events.last().first);
+  TEST_ASSERT_EQUAL_INT32(500, events.last().second);
+  TEST_ASSERT_EQUAL_INT32(45, events.last().third);
+
+  events.clear();
+  controller.handleCommand("GOTO_DEG 91");
+  TEST_ASSERT_TRUE(events.contains(EventId::InvalidCommandArgument));
+  TEST_ASSERT_EQUAL_INT32(400, controller.targetPosition());
+}
+
+void test_degree_soft_endstop_commands_configure_allowed_angle_range() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+
+  controller.handleCommand("SOFTMIN_DEG 10");
+  TEST_ASSERT_EQUAL_INT32(711, controller.softMaxPosition());
+  TEST_ASSERT_TRUE(events.contains(EventId::SoftEndstopsSet));
+
+  events.clear();
+  controller.handleCommand("SOFTMAX_DEG 80");
+  TEST_ASSERT_EQUAL_INT32(88, controller.softMinPosition());
+  TEST_ASSERT_EQUAL_INT32(711, controller.softMaxPosition());
+  TEST_ASSERT_TRUE(events.contains(EventId::SoftEndstopsSet));
+
+  events.clear();
+  controller.handleCommand("DEGLIMITS?");
+  TEST_ASSERT_EQUAL(EventId::DegreeLimitsReported, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(10, events.last().first);
+  TEST_ASSERT_EQUAL_INT32(80, events.last().second);
+
+  events.clear();
+  controller.handleCommand("GOTO_DEG 0");
+  TEST_ASSERT_EQUAL_INT32(711, controller.targetPosition());
+  TEST_ASSERT_TRUE(events.contains(EventId::SoftEndstopMaxClamped));
+
+  events.clear();
+  controller.handleCommand("SOFTMIN_DEG 85");
+  TEST_ASSERT_EQUAL_INT32(88, controller.softMinPosition());
+  TEST_ASSERT_EQUAL_INT32(711, controller.softMaxPosition());
+  TEST_ASSERT_TRUE(events.contains(EventId::SoftEndstopRangeInvalid));
+}
+
+void test_stallguard_threshold_command_validates_and_reports_setting() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  TEST_ASSERT_EQUAL_UINT8(100U, controller.stallGuardThreshold());
+
+  controller.handleCommand("STALLGUARD 64");
+  TEST_ASSERT_EQUAL_UINT8(64U, controller.stallGuardThreshold());
+  TEST_ASSERT_TRUE(events.contains(EventId::StallGuardThresholdChanged));
+
+  events.clear();
+  controller.handleCommand("STALLGUARD?");
+  TEST_ASSERT_EQUAL(EventId::StallGuardThresholdReported, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(64, events.last().first);
+
+  events.clear();
+  controller.handleCommand("STALLGUARD 256");
+  TEST_ASSERT_EQUAL_UINT8(64U, controller.stallGuardThreshold());
+  TEST_ASSERT_TRUE(events.contains(EventId::StallGuardThresholdInvalid));
 }
 
 void test_homing_uses_stallguard_as_min_endstop_redundancy() {
@@ -830,6 +937,35 @@ void test_move_starts_and_passes_valve_free_check() {
   TEST_ASSERT_TRUE(events.contains(EventId::ValveFreeCheckPassed));
 }
 
+void test_move_reached_event_is_emitted_after_target_position_is_reached() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.position_ = 400;
+  controller.tick(kNoInputs, 20U);
+  events.clear();
+
+  controller.handleCommand("GOTO 600");
+
+  TEST_ASSERT_TRUE(events.contains(EventId::MoveAccepted));
+  TEST_ASSERT_FALSE(events.contains(EventId::MoveReached));
+
+  events.clear();
+  stepper.position_ = 600;
+  controller.tick(kNoInputs, 21U);
+
+  TEST_ASSERT_EQUAL_UINT32(1U, events.count(EventId::MoveReached));
+  TEST_ASSERT_EQUAL(EventId::MoveReached, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(600, events.last().first);
+  TEST_ASSERT_EQUAL_INT32(750, events.last().second);
+
+  controller.tick(kNoInputs, 22U);
+
+  TEST_ASSERT_EQUAL_UINT32(1U, events.count(EventId::MoveReached));
+}
+
 void test_move_free_check_faults_when_valve_is_blocked() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -1107,14 +1243,14 @@ void test_modbus_read_ignores_broadcast_and_rejects_invalid_ranges() {
   TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
 
   uart.clearWritten();
-  std::uint8_t tooManyRegisters[8]{1U, 0x03U, 0U, 0U, 0U, 24U, 0U, 0U};
+  std::uint8_t tooManyRegisters[8]{1U, 0x03U, 0U, 0U, 0U, 29U, 0U, 0U};
   feedModbusFrame(server, tooManyRegisters, 6U);
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x83U, uart.written_[1]);
   TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
 
   uart.clearWritten();
-  std::uint8_t endOverflow[8]{1U, 0x03U, 0U, 22U, 0U, 2U, 0U, 0U};
+  std::uint8_t endOverflow[8]{1U, 0x03U, 0U, 27U, 0U, 2U, 0U, 0U};
   feedModbusFrame(server, endOverflow, 6U);
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x83U, uart.written_[1]);
@@ -1139,7 +1275,7 @@ void test_modbus_reads_status_and_permille_registers() {
   TEST_ASSERT_EQUAL_UINT8(16U, uart.written_[2]);
   TEST_ASSERT_EQUAL_UINT16(static_cast<std::uint16_t>(ControllerState::Ready),
                            responseUint16(uart, 3U));
-  TEST_ASSERT_EQUAL_UINT16(0x0005U, responseUint16(uart, 5U));
+  TEST_ASSERT_EQUAL_UINT16(0x000DU, responseUint16(uart, 5U));
   TEST_ASSERT_EQUAL_UINT16(1000U, responseUint16(uart, 17U));
 }
 
@@ -1190,7 +1326,7 @@ void test_modbus_reads_release_diagnostic_registers() {
   TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 7U));
   TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 9U));
   TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 11U));
-  TEST_ASSERT_EQUAL_UINT16(2U, responseUint16(uart, 13U));
+  TEST_ASSERT_EQUAL_UINT16(3U, responseUint16(uart, 13U));
 }
 
 void test_modbus_rejects_writes_to_release_diagnostic_registers() {
@@ -1231,12 +1367,12 @@ void test_modbus_reads_full_release_register_block() {
   FanFlapController controller(stepper, events, kFastTestConfig);
   ModbusRtuServer server(controller, uart);
 
-  std::uint8_t frame[8]{1U, 0x03U, 0U, 0U, 0U, 23U, 0U, 0U};
+  std::uint8_t frame[8]{1U, 0x03U, 0U, 0U, 0U, 28U, 0U, 0U};
   feedModbusFrame(server, frame, 6U);
 
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[1]);
-  TEST_ASSERT_EQUAL_UINT8(46U, uart.written_[2]);
+  TEST_ASSERT_EQUAL_UINT8(56U, uart.written_[2]);
 }
 
 void test_modbus_reads_configured_boot_reason_register() {
@@ -1264,7 +1400,7 @@ void test_modbus_rejects_read_past_release_register_block() {
   FanFlapController controller(stepper, events, kFastTestConfig);
   ModbusRtuServer server(controller, uart);
 
-  std::uint8_t frame[8]{1U, 0x03U, 0U, 22U, 0U, 2U, 0U, 0U};
+  std::uint8_t frame[8]{1U, 0x03U, 0U, 27U, 0U, 2U, 0U, 0U};
   feedModbusFrame(server, frame, 6U);
 
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
@@ -1333,6 +1469,111 @@ void test_modbus_write_target_permille_moves_when_ready() {
   TEST_ASSERT_EQUAL_UINT32(8U, uart.writtenCount_);
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x06U, uart.written_[1]);
+}
+
+void test_modbus_flags_report_motion_until_position_reached() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.position_ = 400;
+
+  std::uint8_t readFlags[8]{1U, 0x03U, 0U, 9U, 0U, 1U, 0U, 0U};
+  feedModbusFrame(server, readFlags, 6U);
+  TEST_ASSERT_EQUAL_UINT16(0x0005U, responseUint16(uart, 3U));
+
+  uart.clearWritten();
+  std::uint8_t writeTarget[8]{1U, 0x06U, 0U, 14U, 0U, 0U, 0U, 0U};
+  writeModbusUint16(writeTarget, 4U, 750U);
+  feedModbusFrame(server, writeTarget, 6U);
+
+  uart.clearWritten();
+  std::uint8_t readMovingFlags[8]{1U, 0x03U, 0U, 9U, 0U, 1U, 0U, 0U};
+  feedModbusFrame(server, readMovingFlags, 6U);
+  TEST_ASSERT_EQUAL_UINT16(0x000DU, responseUint16(uart, 3U));
+
+  stepper.position_ = 600;
+  controller.tick(kNoInputs, 20U);
+
+  uart.clearWritten();
+  std::uint8_t readReachedFlags[8]{1U, 0x03U, 0U, 9U, 0U, 1U, 0U, 0U};
+  feedModbusFrame(server, readReachedFlags, 6U);
+  TEST_ASSERT_EQUAL_UINT16(0x0005U, responseUint16(uart, 3U));
+}
+
+void test_modbus_degree_registers_move_and_configure_limits() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.position_ = 800;
+
+  std::uint8_t readDegrees[8]{1U, 0x03U, 0U, 23U, 0U, 4U, 0U, 0U};
+  feedModbusFrame(server, readDegrees, 6U);
+  TEST_ASSERT_EQUAL_UINT8(8U, uart.written_[2]);
+  TEST_ASSERT_EQUAL_UINT16(45U, responseUint16(uart, 3U));
+  TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 5U));
+  TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 7U));
+  TEST_ASSERT_EQUAL_UINT16(90U, responseUint16(uart, 9U));
+
+  uart.clearWritten();
+  std::uint8_t targetDegree[8]{1U, 0x06U, 0U, 23U, 0U, 45U, 0U, 0U};
+  feedModbusFrame(server, targetDegree, 6U);
+  TEST_ASSERT_EQUAL_INT32(400, controller.targetPosition());
+  TEST_ASSERT_EQUAL_UINT32(8U, uart.writtenCount_);
+
+  uart.clearWritten();
+  std::uint8_t softMinDegree[8]{1U, 0x06U, 0U, 25U, 0U, 10U, 0U, 0U};
+  feedModbusFrame(server, softMinDegree, 6U);
+  TEST_ASSERT_EQUAL_INT32(711, controller.softMaxPosition());
+
+  uart.clearWritten();
+  std::uint8_t softMaxDegree[8]{1U, 0x06U, 0U, 26U, 0U, 80U, 0U, 0U};
+  feedModbusFrame(server, softMaxDegree, 6U);
+  TEST_ASSERT_EQUAL_INT32(88, controller.softMinPosition());
+
+  uart.clearWritten();
+  std::uint8_t invalidMinDegree[8]{1U, 0x06U, 0U, 25U, 0U, 85U, 0U, 0U};
+  feedModbusFrame(server, invalidMinDegree, 6U);
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x86U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[2]);
+  TEST_ASSERT_EQUAL_INT32(88, controller.softMinPosition());
+  TEST_ASSERT_EQUAL_INT32(711, controller.softMaxPosition());
+}
+
+void test_modbus_stallguard_threshold_register_validates_and_updates() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  std::uint8_t readThreshold[8]{1U, 0x03U, 0U, 27U, 0U, 1U, 0U, 0U};
+  feedModbusFrame(server, readThreshold, 6U);
+  TEST_ASSERT_EQUAL_UINT16(100U, responseUint16(uart, 3U));
+
+  uart.clearWritten();
+  std::uint8_t writeThreshold[8]{1U, 0x06U, 0U, 27U, 0U, 64U, 0U, 0U};
+  feedModbusFrame(server, writeThreshold, 6U);
+  TEST_ASSERT_EQUAL_UINT8(64U, controller.stallGuardThreshold());
+  TEST_ASSERT_TRUE(events.contains(EventId::StallGuardThresholdChanged));
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x06U, uart.written_[1]);
+
+  uart.clearWritten();
+  std::uint8_t invalidThreshold[8]{1U, 0x06U, 0U, 27U, 1U, 0U, 0U, 0U};
+  feedModbusFrame(server, invalidThreshold, 6U);
+  TEST_ASSERT_EQUAL_UINT8(64U, controller.stallGuardThreshold());
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x86U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[2]);
 }
 
 void test_modbus_broadcast_write_is_ignored_for_home_safety() {
@@ -1606,6 +1847,32 @@ void test_tmc_driver_initializes_and_polls_stall_status() {
   TEST_ASSERT_TRUE(driver.pollStallGuard());
 }
 
+void test_tmc_driver_updates_stallguard_threshold_register_and_poll_limit() {
+  FakeUart uart;
+  FakeDelay delay;
+  CapturingEvents events;
+  Tmc2209Driver driver(uart, delay, events);
+
+  driver.setStallGuardThreshold(64U);
+
+  TEST_ASSERT_EQUAL_UINT8(64U, driver.stallGuardThreshold());
+  TEST_ASSERT_EQUAL_UINT32(8U, uart.writtenCount_);
+  TEST_ASSERT_EQUAL_UINT8(0x05U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x00U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0xC0U, uart.written_[2]);
+  TEST_ASSERT_EQUAL_UINT8(64U, uart.written_[6]);
+  TEST_ASSERT_EQUAL_UINT8(tmcCrc(uart.written_, 7U), uart.written_[7]);
+
+  queueTmcResponse(uart, 0x41U, 65U);
+  TEST_ASSERT_EQUAL(Tmc2209PollResult::NotStalled,
+                    driver.pollStallGuardStatus());
+
+  queueTmcReadEcho(uart, 0x41U);
+  queueTmcResponse(uart, 0x41U, 64U);
+  TEST_ASSERT_EQUAL(Tmc2209PollResult::Stalled,
+                    driver.pollStallGuardStatus());
+}
+
 void test_tmc_driver_accepts_datasheet_read_reply_master_address() {
   FakeUart uart;
   FakeDelay delay;
@@ -1675,6 +1942,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_both_endstops_active_at_boot_enters_fault);
   RUN_TEST(test_homing_moves_to_configured_safe_position);
   RUN_TEST(test_safe_position_commands_validate_and_report_permille);
+  RUN_TEST(test_degree_position_commands_move_and_report_angle);
+  RUN_TEST(test_degree_soft_endstop_commands_configure_allowed_angle_range);
+  RUN_TEST(test_stallguard_threshold_command_validates_and_reports_setting);
   RUN_TEST(test_homing_uses_stallguard_as_min_endstop_redundancy);
   RUN_TEST(test_homing_uses_stallguard_as_max_endstop_redundancy);
   RUN_TEST(test_invalid_homing_range_enters_fault_state);
@@ -1690,6 +1960,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_fault_stops_and_disables_driver_in_same_tick);
   RUN_TEST(test_home_command_after_fault_does_not_bypass_disabled_driver);
   RUN_TEST(test_move_starts_and_passes_valve_free_check);
+  RUN_TEST(test_move_reached_event_is_emitted_after_target_position_is_reached);
   RUN_TEST(test_move_free_check_faults_when_valve_is_blocked);
   RUN_TEST(test_ready_move_faults_when_position_does_not_progress);
   RUN_TEST(test_free_check_times_out_before_required_travel);
@@ -1714,6 +1985,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_fault_and_diag_text_commands_report_fault_snapshot);
   RUN_TEST(test_service_selftest_command_reports_without_moving_motor);
   RUN_TEST(test_modbus_write_target_permille_moves_when_ready);
+  RUN_TEST(test_modbus_flags_report_motion_until_position_reached);
+  RUN_TEST(test_modbus_degree_registers_move_and_configure_limits);
+  RUN_TEST(test_modbus_stallguard_threshold_register_validates_and_updates);
   RUN_TEST(test_modbus_broadcast_write_is_ignored_for_home_safety);
   RUN_TEST(test_modbus_safe_position_register_validates_and_updates);
   RUN_TEST(test_modbus_rejects_soft_endstop_writes_while_faulted);
@@ -1725,6 +1999,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_modbus_write_multiple_target_words_preserves_signed_32bit_value);
   RUN_TEST(test_modbus_write_multiple_rejects_command_mixed_with_target);
   RUN_TEST(test_tmc_driver_initializes_and_polls_stall_status);
+  RUN_TEST(test_tmc_driver_updates_stallguard_threshold_register_and_poll_limit);
   RUN_TEST(test_tmc_driver_accepts_datasheet_read_reply_master_address);
   RUN_TEST(test_tmc_poll_reports_communication_error_without_response);
   RUN_TEST(test_tmc_poll_reports_not_stalled_above_threshold);

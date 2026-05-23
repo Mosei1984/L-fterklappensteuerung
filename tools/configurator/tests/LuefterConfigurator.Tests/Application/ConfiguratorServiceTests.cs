@@ -49,17 +49,23 @@ public sealed class ConfiguratorServiceTests
     }
 
     [Fact]
-    public async Task WriteConfigRejectsInvalidDeviceIdAndSafePosition()
+    public async Task WriteConfigRejectsInvalidDeviceIdSafePositionAnglesAndStallGuard()
     {
         var service = new ConfiguratorService();
 
         var badId = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(0, 250), CancellationToken.None);
         var badSafe = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 1001), CancellationToken.None);
+        var badAngles = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 250, 80, 10), CancellationToken.None);
+        var badStallGuard = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 250, 0, 90, 256), CancellationToken.None);
 
         Assert.False(badId.Success);
         Assert.Contains("ID", badId.Error, StringComparison.OrdinalIgnoreCase);
         Assert.False(badSafe.Success);
         Assert.Contains("Safe", badSafe.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(badAngles.Success);
+        Assert.Contains("Grad", badAngles.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(badStallGuard.Success);
+        Assert.Contains("StallGuard", badStallGuard.Error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -68,13 +74,19 @@ public sealed class ConfiguratorServiceTests
         var service = new ConfiguratorService();
         await service.ScanAsync(CancellationToken.None);
 
-        var result = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(12, 640), CancellationToken.None);
+        var result = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(12, 640, 10, 80, 64), CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal(12, result.Snapshot.ActiveDeviceId);
         Assert.Equal(640, result.Snapshot.SafePositionPromille);
+        Assert.Equal(10, result.Snapshot.SoftMinDegree);
+        Assert.Equal(80, result.Snapshot.SoftMaxDegree);
+        Assert.Equal(64, result.Snapshot.StallGuardThreshold);
         Assert.Contains(result.Snapshot.Log, line => line.Contains("ID 12", StringComparison.Ordinal));
         Assert.Contains(result.Snapshot.Log, line => line.Contains("SAFE 640", StringComparison.Ordinal));
+        Assert.Contains(result.Snapshot.Log, line => line.Contains("SOFTMIN_DEG 10", StringComparison.Ordinal));
+        Assert.Contains(result.Snapshot.Log, line => line.Contains("SOFTMAX_DEG 80", StringComparison.Ordinal));
+        Assert.Contains(result.Snapshot.Log, line => line.Contains("STALLGUARD 64", StringComparison.Ordinal));
         Assert.DoesNotContain(result.Snapshot.Log, line => line.Contains(';', StringComparison.Ordinal));
     }
 

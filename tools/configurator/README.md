@@ -102,12 +102,15 @@ Die UI zeigt die Dateien nach `Export testen` direkt als Downloadlinks. Die API 
 Loxone-Hinweise:
 
 - Datei `MB_Luefterklappe_FanFlap_ID<id>.xml` in den Loxone-Config-Template-Ordner `C:\ProgramData\Loxone\Loxone Config <version>\ENG\Comm` kopieren oder ueber die Template-Importfunktion einlesen.
-- Loxone IO-Adressen sind 0-basiert und entsprechen direkt den Firmware-Holding-Registern `0..16`.
-- Fuer die Luefterklappe zuerst Register `14` als Analogaktor `0..1000` und Register `8`, `9`, `15`, `16` als langsam gepollte Status-/Parameterpunkte verwenden.
+- Loxone IO-Adressen sind 0-basiert und entsprechen direkt den Firmware-Holding-Registern `0..27`.
+- Fuer die Luefterklappe zuerst Register `23` als Analogaktor `0..90` Grad nutzen: `0` ist offen/waagrecht, `90` geschlossen/senkrecht.
+- Optional bleibt Register `14` als Legacy-Analogaktor `0..1000` Promille verfuegbar.
+- Register `8`, `9`, `15`, `16` und `24` als langsam gepollte Status-/Parameterpunkte verwenden.
+- Grad-Limits liegen auf Register `25..26`; die StallGuard-Schwelle liegt auf Register `27`.
 - Register `0` mit Wert `5` als `refreshMachine`-Kommando anlegen. Das ist der
   bevorzugte Bedienbefehl nach Blockade, Endschalterfehler oder Safe-State:
   Fehler quittieren und Homing starten, ohne den Pico neu zu resetten.
-- 32-bit Step-Register liegen High-Word zuerst, Low-Word danach. Fuer normale Home-Automation-Steuerung ist `target_promille` auf Register `14` robuster.
+- 32-bit Step-Register liegen High-Word zuerst, Low-Word danach. Fuer normale Home-Automation-Steuerung ist `target_degree` auf Register `23` robuster.
 
 ## Portable Build
 
@@ -206,7 +209,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ..\..\tools\run_hard_checks.
 
 Aktueller Stand:
 
-- Configurator xUnit: 61 Tests.
+- Configurator xUnit: 65 Tests.
 - Coverage im Hard-Gate: Cobertura XML plus Markdown-Zusammenfassung.
 - Razor-Build: `RazorCompileOnBuild=true` mit Binlog.
 - VS Code: C# Dev Kit/Test Explorer/Razor/LSP-Trace-Einstellungen werden im

@@ -5,16 +5,19 @@
 namespace luefterklappe {
 namespace {
 
-constexpr std::uint16_t kRegisterCount = 23U;
+constexpr std::uint16_t kRegisterCount = 28U;
 constexpr std::uint16_t kMaxReadRegisters = kRegisterCount;
 constexpr std::size_t kMaxWriteRegisters = kRegisterCount;
 constexpr std::uint16_t kReadyFlag = 0x0001U;
 constexpr std::uint16_t kFaultFlag = 0x0002U;
 constexpr std::uint16_t kSoftEndstopsFlag = 0x0004U;
+constexpr std::uint16_t kMovingFlag = 0x0008U;
 constexpr std::uint16_t kMaxPermille = 1000U;
+constexpr std::uint16_t kMaxDegree = 90U;
+constexpr std::uint16_t kMaxStallGuardThreshold = 255U;
 constexpr std::uint16_t kSettingsStatusOk = 0U;
 constexpr std::uint16_t kTmcHealthUnknown = 0U;
-constexpr std::uint16_t kFirmwareProtocolVersion = 2U;
+constexpr std::uint16_t kFirmwareProtocolVersion = 3U;
 
 bool isFaultState(const ControllerState state) {
   return (state == ControllerState::ErrorDetected) ||
@@ -278,9 +281,15 @@ std::uint8_t ModbusRtuServer::validateRegisterWrites(
   bool hasSingleWriteOnlyRegister = false;
   bool hasTargetPosition = false;
   bool hasTargetPermille = false;
+  bool hasTargetDegree = false;
   bool hasSoftEndstop = false;
+  bool hasSoftEndstopDegree = false;
   std::int32_t proposedSoftMin = controller_.softMinPosition();
   std::int32_t proposedSoftMax = controller_.softMaxPosition();
+  std::uint16_t proposedSoftMinDegree =
+      degreeFromPosition(controller_.softMaxPosition());
+  std::uint16_t proposedSoftMaxDegree =
+      degreeFromPosition(controller_.softMinPosition());
 
   for (std::size_t index = 0U; index < count; ++index) {
     const RegisterWrite write = writes[index];
@@ -302,7 +311,19 @@ std::uint8_t ModbusRtuServer::validateRegisterWrites(
       case ModbusRegister::TargetPermille:
         hasTargetPermille = true;
         break;
+      case ModbusRegister::TargetDegree:
+        hasTargetDegree = true;
+        break;
       case ModbusRegister::SafePositionPermille:
+      case ModbusRegister::StallGuardThreshold:
+        break;
+      case ModbusRegister::SoftMinDegree:
+        hasSoftEndstopDegree = true;
+        proposedSoftMinDegree = write.value;
+        break;
+      case ModbusRegister::SoftMaxDegree:
+        hasSoftEndstopDegree = true;
+        proposedSoftMaxDegree = write.value;
         break;
       case ModbusRegister::SoftMinHigh:
         hasSoftEndstop = true;
@@ -337,6 +358,7 @@ std::uint8_t ModbusRtuServer::validateRegisterWrites(
       case ModbusRegister::TmcHealth:
       case ModbusRegister::BootReason:
       case ModbusRegister::FirmwareProtocolVersion:
+      case ModbusRegister::CurrentDegree:
         break;
     }
   }
@@ -345,13 +367,25 @@ std::uint8_t ModbusRtuServer::validateRegisterWrites(
     return kIllegalDataValue;
   }
 
-  if (hasTargetPosition && hasTargetPermille) {
+  if ((hasTargetPosition && hasTargetPermille) ||
+      (hasTargetPosition && hasTargetDegree) ||
+      (hasTargetPermille && hasTargetDegree)) {
+    return kIllegalDataValue;
+  }
+
+  if (hasSoftEndstop && hasSoftEndstopDegree) {
     return kIllegalDataValue;
   }
 
   if (hasSoftEndstop &&
       !softEndstopRangeCanBeApplied(
           SoftEndstopRange{proposedSoftMin, proposedSoftMax})) {
+    return kIllegalDataValue;
+  }
+
+  if (hasSoftEndstopDegree &&
+      !degreeRangeCanBeApplied(proposedSoftMinDegree,
+                               proposedSoftMaxDegree)) {
     return kIllegalDataValue;
   }
 
@@ -375,12 +409,18 @@ std::uint8_t ModbusRtuServer::validateRegisterWrite(
     case ModbusRegister::TargetPositionHigh:
     case ModbusRegister::TargetPositionLow:
     case ModbusRegister::TargetPermille:
+    case ModbusRegister::TargetDegree:
       if (controller_.state() != ControllerState::Ready) {
         return kIllegalDataValue;
       }
       if ((static_cast<ModbusRegister>(write.address) ==
            ModbusRegister::TargetPermille) &&
           (write.value > kMaxPermille)) {
+        return kIllegalDataValue;
+      }
+      if ((static_cast<ModbusRegister>(write.address) ==
+           ModbusRegister::TargetDegree) &&
+          (write.value > kMaxDegree)) {
         return kIllegalDataValue;
       }
       return kNoException;
@@ -393,12 +433,26 @@ std::uint8_t ModbusRtuServer::validateRegisterWrite(
     case ModbusRegister::SoftMinLow:
     case ModbusRegister::SoftMaxHigh:
     case ModbusRegister::SoftMaxLow:
+    case ModbusRegister::SoftMinDegree:
+    case ModbusRegister::SoftMaxDegree:
       if (controller_.state() != ControllerState::Ready) {
+        return kIllegalDataValue;
+      }
+      if (((static_cast<ModbusRegister>(write.address) ==
+            ModbusRegister::SoftMinDegree) ||
+           (static_cast<ModbusRegister>(write.address) ==
+            ModbusRegister::SoftMaxDegree)) &&
+          (write.value > kMaxDegree)) {
         return kIllegalDataValue;
       }
       return kNoException;
     case ModbusRegister::DeviceId:
       if ((write.value == 0U) || (write.value > 247U)) {
+        return kIllegalDataValue;
+      }
+      return kNoException;
+    case ModbusRegister::StallGuardThreshold:
+      if (write.value > kMaxStallGuardThreshold) {
         return kIllegalDataValue;
       }
       return kNoException;
@@ -415,6 +469,7 @@ std::uint8_t ModbusRtuServer::validateRegisterWrite(
     case ModbusRegister::TmcHealth:
     case ModbusRegister::BootReason:
     case ModbusRegister::FirmwareProtocolVersion:
+    case ModbusRegister::CurrentDegree:
       return kIllegalDataAddress;
   }
 
@@ -441,14 +496,41 @@ bool ModbusRtuServer::softEndstopRangeCanBeApplied(
   return boundedMin < boundedMax;
 }
 
+bool ModbusRtuServer::degreeRangeCanBeApplied(
+    const std::uint16_t minDegree, const std::uint16_t maxDegree) const {
+  return (minDegree <= kMaxDegree) && (maxDegree <= kMaxDegree) &&
+         (minDegree <= maxDegree) &&
+         softEndstopRangeCanBeApplied(
+             SoftEndstopRange{positionFromDegree(maxDegree),
+                              positionFromDegree(minDegree)});
+}
+
+bool ModbusRtuServer::applyDegreeSoftEndstops(
+    const std::uint16_t minDegree, const std::uint16_t maxDegree) {
+  if (!degreeRangeCanBeApplied(minDegree, maxDegree)) {
+    return false;
+  }
+
+  return controller_.setSoftEndstops(
+      SoftEndstopRange{positionFromDegree(maxDegree),
+                       positionFromDegree(minDegree)});
+}
+
 bool ModbusRtuServer::applyRegisterWrites(const RegisterWrite* const writes,
                                           const std::size_t count) {
   bool hasSoftEndstop = false;
+  bool hasSoftEndstopDegree = false;
   bool hasTargetPosition = false;
   bool hasTargetPermille = false;
+  bool hasTargetDegree = false;
   std::uint16_t targetPermille = 0U;
+  std::uint16_t targetDegree = 0U;
   std::int32_t proposedSoftMin = controller_.softMinPosition();
   std::int32_t proposedSoftMax = controller_.softMaxPosition();
+  std::uint16_t proposedSoftMinDegree =
+      degreeFromPosition(controller_.softMaxPosition());
+  std::uint16_t proposedSoftMaxDegree =
+      degreeFromPosition(controller_.softMinPosition());
   std::int32_t proposedTarget = controller_.targetPosition();
 
   for (std::size_t index = 0U; index < count; ++index) {
@@ -490,8 +572,25 @@ bool ModbusRtuServer::applyRegisterWrites(const RegisterWrite* const writes,
         hasTargetPermille = true;
         targetPermille = write.value;
         break;
+      case ModbusRegister::TargetDegree:
+        hasTargetDegree = true;
+        targetDegree = write.value;
+        break;
+      case ModbusRegister::SoftMinDegree:
+        hasSoftEndstopDegree = true;
+        proposedSoftMinDegree = write.value;
+        break;
+      case ModbusRegister::SoftMaxDegree:
+        hasSoftEndstopDegree = true;
+        proposedSoftMaxDegree = write.value;
+        break;
       case ModbusRegister::SafePositionPermille:
         if (!controller_.setSafePositionPermille(write.value)) {
+          return false;
+        }
+        break;
+      case ModbusRegister::StallGuardThreshold:
+        if (!controller_.setStallGuardThreshold(write.value)) {
           return false;
         }
         break;
@@ -508,13 +607,20 @@ bool ModbusRtuServer::applyRegisterWrites(const RegisterWrite* const writes,
       case ModbusRegister::TmcHealth:
       case ModbusRegister::BootReason:
       case ModbusRegister::FirmwareProtocolVersion:
+      case ModbusRegister::CurrentDegree:
         return false;
     }
   }
 
   if (hasSoftEndstop &&
       !controller_.setSoftEndstops(
-          SoftEndstopRange{proposedSoftMin, proposedSoftMax})) {
+      SoftEndstopRange{proposedSoftMin, proposedSoftMax})) {
+    return false;
+  }
+
+  if (hasSoftEndstopDegree &&
+      !applyDegreeSoftEndstops(proposedSoftMinDegree,
+                               proposedSoftMaxDegree)) {
     return false;
   }
 
@@ -528,6 +634,14 @@ bool ModbusRtuServer::applyRegisterWrites(const RegisterWrite* const writes,
   if (hasTargetPermille) {
     std::int32_t acceptedPosition = 0;
     if (!controller_.requestMoveTo(positionFromPermille(targetPermille),
+                                   acceptedPosition)) {
+      return false;
+    }
+  }
+
+  if (hasTargetDegree) {
+    std::int32_t acceptedPosition = 0;
+    if (!controller_.requestMoveTo(positionFromDegree(targetDegree),
                                    acceptedPosition)) {
       return false;
     }
@@ -585,8 +699,25 @@ bool ModbusRtuServer::writeRegister(const RegisterWrite write) {
       return controller_.requestMoveTo(positionFromPermille(write.value),
                                        acceptedPosition);
     }
+    case ModbusRegister::TargetDegree:
+    {
+      std::int32_t acceptedPosition = 0;
+      if (write.value > kMaxDegree) {
+        return false;
+      }
+      return controller_.requestMoveTo(positionFromDegree(write.value),
+                                       acceptedPosition);
+    }
+    case ModbusRegister::SoftMinDegree:
+      return applyDegreeSoftEndstops(
+          write.value, degreeFromPosition(controller_.softMinPosition()));
+    case ModbusRegister::SoftMaxDegree:
+      return applyDegreeSoftEndstops(
+          degreeFromPosition(controller_.softMaxPosition()), write.value);
     case ModbusRegister::SafePositionPermille:
       return controller_.setSafePositionPermille(write.value);
+    case ModbusRegister::StallGuardThreshold:
+      return controller_.setStallGuardThreshold(write.value);
     case ModbusRegister::State:
     case ModbusRegister::Flags:
     case ModbusRegister::CurrentPositionHigh:
@@ -600,6 +731,7 @@ bool ModbusRtuServer::writeRegister(const RegisterWrite write) {
     case ModbusRegister::TmcHealth:
     case ModbusRegister::BootReason:
     case ModbusRegister::FirmwareProtocolVersion:
+    case ModbusRegister::CurrentDegree:
       return false;
   }
 
@@ -650,6 +782,10 @@ bool ModbusRtuServer::readRegister(const std::uint16_t address,
       if (controller_.softEndstopsEnabled()) {
         flags = static_cast<std::uint16_t>(flags | kSoftEndstopsFlag);
       }
+      if ((state == ControllerState::Ready) &&
+          (controller_.currentPosition() != controller_.targetPosition())) {
+        flags = static_cast<std::uint16_t>(flags | kMovingFlag);
+      }
       value = flags;
       return true;
     }
@@ -673,6 +809,21 @@ bool ModbusRtuServer::readRegister(const std::uint16_t address,
       return true;
     case ModbusRegister::SafePositionPermille:
       value = controller_.safePositionPermille();
+      return true;
+    case ModbusRegister::TargetDegree:
+      value = degreeFromPosition(controller_.targetPosition());
+      return true;
+    case ModbusRegister::CurrentDegree:
+      value = degreeFromPosition(controller_.currentPosition());
+      return true;
+    case ModbusRegister::SoftMinDegree:
+      value = degreeFromPosition(controller_.softMaxPosition());
+      return true;
+    case ModbusRegister::SoftMaxDegree:
+      value = degreeFromPosition(controller_.softMinPosition());
+      return true;
+    case ModbusRegister::StallGuardThreshold:
+      value = controller_.stallGuardThreshold();
       return true;
     case ModbusRegister::LastFaultReason:
       value = static_cast<std::uint16_t>(controller_.lastFaultReason());
@@ -777,6 +928,42 @@ std::uint16_t ModbusRtuServer::permilleFromPosition(
 
   return static_cast<std::uint16_t>(
       (static_cast<std::int64_t>(position) * kMaxPermille) /
+      controller_.maxPosition());
+}
+
+std::int32_t ModbusRtuServer::positionFromDegree(
+    const std::uint16_t degree) const {
+  if (controller_.maxPosition() <= 0) {
+    return 0;
+  }
+
+  if (degree >= kMaxDegree) {
+    return 0;
+  }
+
+  return static_cast<std::int32_t>(
+      (static_cast<std::int64_t>(controller_.maxPosition()) *
+       (static_cast<std::int64_t>(kMaxDegree) - degree)) /
+      kMaxDegree);
+}
+
+std::uint16_t ModbusRtuServer::degreeFromPosition(
+    const std::int32_t position) const {
+  if (controller_.maxPosition() <= 0) {
+    return 0U;
+  }
+
+  if (position <= 0) {
+    return kMaxDegree;
+  }
+
+  if (position >= controller_.maxPosition()) {
+    return 0U;
+  }
+
+  return static_cast<std::uint16_t>(
+      (static_cast<std::int64_t>(controller_.maxPosition() - position) *
+       kMaxDegree) /
       controller_.maxPosition());
 }
 

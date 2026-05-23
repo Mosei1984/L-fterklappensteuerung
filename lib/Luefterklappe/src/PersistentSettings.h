@@ -7,8 +7,9 @@
 namespace luefterklappe {
 
 struct PersistentSettings {
-  std::uint8_t deviceId;
-  std::uint16_t safePositionPermille;
+  std::uint8_t deviceId{1U};
+  std::uint16_t safePositionPermille{1000U};
+  std::uint8_t stallGuardThreshold{100U};
 };
 
 class SettingsStoragePort {

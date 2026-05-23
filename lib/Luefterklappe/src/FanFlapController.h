@@ -31,8 +31,10 @@ enum class EventId : std::uint8_t {
   SoftEndstopMaxClamped,
   SoftEndstopRangeInvalid,
   MoveAccepted,
+  MoveReached,
   MotorNotReady,
   PositionReported,
+  DegreePositionReported,
   ResetDuringWait,
   ResetIgnored,
   ManualHomingStarted,
@@ -40,6 +42,7 @@ enum class EventId : std::uint8_t {
   SoftEndstopsEnabled,
   SoftEndstopsDisabled,
   SoftEndstopsStatus,
+  DegreeLimitsReported,
   DeviceIdReported,
   DeviceIdChanged,
   InvalidDeviceId,
@@ -56,6 +59,9 @@ enum class EventId : std::uint8_t {
   ErrorMotorStopped,
   AutoRehomeTimeout,
   StallDetected,
+  StallGuardThresholdReported,
+  StallGuardThresholdChanged,
+  StallGuardThresholdInvalid,
   TmcInitializationStarted,
   TmcConfigured,
   FaultReported,
@@ -150,6 +156,7 @@ class FanFlapController {
   std::int32_t softMaxPosition() const;
   bool softEndstopsEnabled() const;
   std::uint16_t safePositionPermille() const;
+  std::uint8_t stallGuardThreshold() const;
   FaultReason lastFaultReason() const;
   std::uint16_t faultCount() const;
 
@@ -157,6 +164,7 @@ class FanFlapController {
   bool setSoftEndstopsEnabled(bool enabled);
   bool setSoftEndstops(SoftEndstopRange range);
   bool setSafePositionPermille(std::uint16_t permille);
+  bool setStallGuardThreshold(std::uint16_t threshold);
   std::int32_t moveTo(std::int32_t position);
   void reportExternalFault(FaultReason reason);
 
@@ -181,6 +189,7 @@ class FanFlapController {
   void handleAutoRehomeState();
   void handleCommandText(const TextView& text);
   void handleResetCommand();
+  void handleGotoDegreeCommand(const TextView& argument);
   void startHomingMin();
   void startHomingMax();
   void resetMotor();
@@ -193,14 +202,22 @@ class FanFlapController {
   void handleGotoCommand(const TextView& argument);
   void handleSoftMinCommand(const TextView& argument);
   void handleSoftMaxCommand(const TextView& argument);
+  void handleSoftMinDegreeCommand(const TextView& argument);
+  void handleSoftMaxDegreeCommand(const TextView& argument);
   void handleSoftEndstopsCommand(const TextView& argument);
   void handleDeviceIdCommand(const TextView& argument);
   void handleSafePositionCommand(const TextView& argument);
+  void handleStallGuardThresholdCommand(const TextView& argument);
+  bool setSoftEndstopsDegrees(std::uint16_t minDegree,
+                              std::uint16_t maxDegree);
   FaultReason unexpectedSwitchReason(const DigitalInputs& inputs) const;
   bool canMoveWithoutClamp(std::int32_t position) const;
   std::int32_t homingTravelSteps() const;
   std::int32_t motionProgressMinSteps() const;
+  std::int32_t positionFromDegree(std::uint16_t degree) const;
+  std::uint16_t degreeFromPosition(std::int32_t position) const;
   std::int32_t positionFromPermille(std::uint16_t permille) const;
+  std::uint16_t permilleFromPosition(std::int32_t position) const;
   void beginMotionSupervision();
   void updateMotionSupervision(std::uint32_t nowMs);
   void beginValveFreeCheck();
@@ -238,11 +255,13 @@ class FanFlapController {
   std::uint32_t lastProgressMs_;
   std::uint32_t freeCheckStartMs_;
   std::uint16_t safePositionPermille_;
+  std::uint8_t stallGuardThreshold_;
   FaultReason lastFaultReason_;
   std::uint16_t faultCount_;
   bool softEndstopsEnabled_;
   bool valveFreeCheckActive_;
   bool motionSupervisionActive_;
+  bool moveConfirmationPending_;
 };
 
 }  // namespace luefterklappe

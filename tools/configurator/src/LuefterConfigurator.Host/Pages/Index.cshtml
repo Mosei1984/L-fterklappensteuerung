@@ -16,17 +16,17 @@
             </span>
         </a>
         <nav class="topnav" aria-label="Arbeitsbereiche">
+            <a href="#setup">Setup</a>
             <a href="#geraete">Geraete</a>
-            <a href="#konfiguration">Konfiguration</a>
             <a href="#diagnose">Diagnose</a>
-            <a href="#integrationen">Integrationen</a>
+            <a href="#integrationen">Export</a>
         </nav>
         <div class="topbar-actions">
             <span class="connection-pill" data-status-pill>
                 <span aria-hidden="true"></span>
                 Offline
             </span>
-            <button class="primary-action" type="button" data-action="scan">Ports scannen</button>
+            <button class="primary-action" type="button" data-action="scan">Pico suchen</button>
         </div>
     </header>
 
@@ -34,25 +34,45 @@
         <section class="hero-panel" aria-labelledby="overview-title">
             <div class="hero-content">
                 <p class="section-kicker">Controllerstatus</p>
-                <h1 id="overview-title">80-mm-Rohrventil bereit fuer Inbetriebnahme und Feldtest</h1>
+                <h1 id="overview-title">Luefterklappe Schritt fuer Schritt einrichten</h1>
                 <p class="hero-copy">
-                    Mehrere Controller, sichere ID-Vergabe, Modbus RTU/TCP, UF2-Flashing und Exportprofile fuer das 80-mm-Lueftungsventil in Loxone, Home Assistant, MQTT und openHAB.
+                    Pico anschliessen, Controller erkennen, sichere Stellung setzen und die Loxone-Dateien ohne Rohbefehle erzeugen.
                 </p>
                 <div class="protocol-strip" aria-label="Aktive Protokolle">
-                    <span>USB Text 115200</span>
-                    <span>RS485 CH2 38400</span>
-                    <span>Modbus TCP lokal</span>
-                    <span>JSON Profile</span>
+                    <span>USB Pico</span>
+                    <span>Firmware pruefen</span>
+                    <span>Sichere Stellung</span>
+                    <span>Loxone Export</span>
                 </div>
                 <div class="hero-actions">
-                    <button class="primary-action" type="button" data-action="connect">USB verbinden</button>
-                    <button class="ghost-action" type="button" data-action="import">JSON Profil importieren</button>
+                    <button class="primary-action" type="button" data-action="scan">Pico suchen</button>
+                    <button class="ghost-action" type="button" data-action="import">Profil importieren</button>
                 </div>
             </div>
             <aside class="command-center" aria-label="Kommandozentrale">
                 <div class="command-center-header">
                     <span>Live Preview</span>
                     <strong data-status-label>Offline</strong>
+                </div>
+                <div class="valve-simulation" aria-label="Simulierte Ventilstellung" aria-live="polite">
+                    <div class="valve-simulation-header">
+                        <span>Ventilstellung</span>
+                        <strong data-valve-label>Sichere Stellung</strong>
+                    </div>
+                    <div class="valve-viewport">
+                        <div class="valve-ring" aria-hidden="true">
+                            <div class="valve-blade" data-valve-blade></div>
+                            <div class="valve-axis"></div>
+                        </div>
+                        <div class="valve-readout">
+                            <strong data-valve-percent>25%</strong>
+                            <span>simulierte Stellung</span>
+                        </div>
+                        <div class="valve-scale" aria-label="Ventilweg 90 Grad">
+                            <span>0% geschlossen</span>
+                            <span>100% offen</span>
+                        </div>
+                    </div>
                 </div>
                 <div class="status-board" aria-label="Systemuebersicht">
                     <div>
@@ -68,7 +88,7 @@
                         <strong data-metric="gateway">Stop</strong>
                     </div>
                     <div>
-                        <span>Safe Position</span>
+                        <span>Sichere Stellung</span>
                         <strong data-safe-output>250</strong>
                     </div>
                 </div>
@@ -86,18 +106,18 @@
                 <p>Pico-Flashlaufwerk wird automatisch erkannt.</p>
             </article>
             <article class="system-item warn">
-                <span>RS485</span>
-                <strong>38400 8N1</strong>
-                <p>Adressierte Textbefehle und Modbus RTU vorbereitet.</p>
+                <span>Servicebus</span>
+                <strong>Lokale Anlage</strong>
+                <p>USB zuerst, Gateway und RS485 bleiben als Servicetest verfuegbar.</p>
             </article>
             <article class="system-item calm">
                 <span>Profil</span>
                 <strong>FanFlap v1</strong>
-                <p>Register 0-16, Safe-Position und Softlimits abgebildet.</p>
+                <p>Sichere Stellung, Anschlaege und Loxone-Export sind vorbereitet.</p>
             </article>
         </section>
 
-        <section class="panel wide setup-wizard" aria-labelledby="loxone-wizard-title">
+        <section class="panel wide setup-wizard" id="setup" aria-labelledby="loxone-wizard-title">
             <div class="panel-header">
                 <div>
                     <p class="section-kicker">Gefuehrte Inbetriebnahme</p>
@@ -119,7 +139,7 @@
                         <span>2</span>
                         <div>
                             <strong>Pico erkennen</strong>
-                            <p>USB verbinden, Portscan starten und vorhandene ID auslesen.</p>
+                            <p>Pico anschliessen, Suche starten und vorhandene ID auslesen.</p>
                         </div>
                     </li>
                     <li class="wizard-step" data-wizard-step="3">
@@ -132,8 +152,8 @@
                     <li class="wizard-step" data-wizard-step="4">
                         <span>4</span>
                         <div>
-                            <strong>ID und Safe State schreiben</strong>
-                            <p>Controller-ID, Safe-Position und Softlimits setzen und speichern.</p>
+                            <strong>ID, Winkel und StallGuard schreiben</strong>
+                            <p>Controller-ID, sichere Stellung, Grad-Limits und StallGuard-Schwelle setzen und speichern.</p>
                         </div>
                     </li>
                     <li class="wizard-step" data-wizard-step="5">
@@ -160,7 +180,8 @@
                     </p>
                     <div class="wizard-actions">
                         <button class="ghost-action compact" type="button" data-wizard-back disabled>Zurueck</button>
-                        <button class="primary-action compact" type="button" data-wizard-next>Weiter</button>
+                        <button class="primary-action compact" type="button" data-wizard-action>Weiter</button>
+                        <button class="ghost-action compact is-hidden" type="button" data-wizard-next>Ueberspringen</button>
                     </div>
                 </div>
             </div>
@@ -173,16 +194,16 @@
                         <p class="section-kicker">Bus & Geraete</p>
                         <h2 id="devices-title">Controller erkennen</h2>
                     </div>
-                    <button class="icon-button" type="button" data-action="scan" aria-label="Ports erneut scannen">Scan</button>
+                    <button class="icon-button" type="button" data-action="scan" aria-label="Pico erneut suchen">Suchen</button>
                 </div>
 
                 <div class="form-grid">
                     <label>
                         Verbindung
                         <select aria-label="Verbindungstyp">
-                            <option>USB Serial</option>
-                            <option>RS485 CH2</option>
-                            <option>Modbus TCP Gateway</option>
+                            <option>Pico ueber USB</option>
+                            <option>RS485 Service</option>
+                            <option>Lokales Gateway</option>
                         </select>
                     </label>
                     <label>
@@ -193,12 +214,12 @@
                         </select>
                     </label>
                     <label>
-                        ID Bereich
-                        <input value="1-32" aria-label="ID Bereich" />
+                        ID Suche
+                        <input value="1-32" aria-label="ID Suche" />
                     </label>
                     <label>
-                        Timeout
-                        <input value="750 ms" aria-label="Timeout" />
+                        Wartezeit
+                        <input value="750 ms" aria-label="Wartezeit" />
                     </label>
                 </div>
 
@@ -207,7 +228,7 @@
                         <span class="device-dot pending" aria-hidden="true"></span>
                         <span>
                             <strong>Kein Controller verbunden</strong>
-                            <small>Scan starten oder USB verbinden</small>
+                            <small>Pico per USB anschliessen und Suche starten</small>
                         </span>
                         <em>offline</em>
                     </button>
@@ -220,7 +241,7 @@
                         <p class="section-kicker">Parameter</p>
                         <h2 id="config-title">Lueftersteuerung konfigurieren</h2>
                     </div>
-                    <button class="ghost-action compact" type="button" data-action="write-config">Schreiben</button>
+                    <button class="ghost-action compact" type="button" data-action="write-config">Werte schreiben</button>
                 </div>
 
                 <div class="form-grid">
@@ -230,27 +251,31 @@
                     </label>
                     <label>
                         <span class="label-row">
-                            Safe Position
+                            Sichere Stellung
                             <strong data-safe-chip>250 / 1000</strong>
                         </span>
-                        <input type="range" min="0" max="1000" value="250" aria-label="Safe Position" data-safe-slider />
+                        <input type="range" min="0" max="1000" value="250" aria-label="Sichere Stellung" data-safe-slider />
                     </label>
                     <label>
-                        Soft Min Steps
-                        <input type="number" value="-12000" aria-label="Soft Min Steps" />
+                        Min. Winkel
+                        <input type="number" min="0" max="90" value="0" aria-label="Min. Winkel" data-soft-min-degree />
                     </label>
                     <label>
-                        Soft Max Steps
-                        <input type="number" value="12000" aria-label="Soft Max Steps" />
+                        Max. Winkel
+                        <input type="number" min="0" max="90" value="90" aria-label="Max. Winkel" data-soft-max-degree />
+                    </label>
+                    <label>
+                        StallGuard
+                        <input type="number" min="0" max="255" value="100" aria-label="StallGuard Schwelle" data-stallguard-threshold />
                     </label>
                 </div>
 
                 <div class="command-grid">
-                    <button type="button" data-action="home">Home</button>
-                    <button type="button" data-action="open">Auf 100%</button>
-                    <button type="button" data-action="half">Auf 50%</button>
-                    <button type="button" data-action="safe">Safe anfahren</button>
-                    <button type="button" data-action="refresh-machine">Refresh Machine</button>
+                    <button type="button" data-action="home">Referenzfahrt</button>
+                    <button type="button" data-action="open">Ganz oeffnen</button>
+                    <button type="button" data-action="half">Halb oeffnen</button>
+                    <button type="button" data-action="safe">Sicher stellen</button>
+                    <button type="button" data-action="refresh-machine">Fehler neu starten</button>
                 </div>
             </section>
 
@@ -274,7 +299,7 @@
                             <span>Fallback bei Endstopfehler</span>
                         </div>
                         <div class="state-line">
-                            <strong>Safe State</strong>
+                            <strong>Sichere Stellung</strong>
                             <span>Fehlerposition definierbar</span>
                         </div>
                     </div>
@@ -292,8 +317,13 @@
                                 <tr><td>0</td><td>Command</td><td><span class="access-chip write">R/W</span></td></tr>
                                 <tr><td>1-2</td><td>Target Steps</td><td><span class="access-chip write">R/W</span></td></tr>
                                 <tr><td>7</td><td>Device ID</td><td><span class="access-chip write">R/W</span></td></tr>
-                                <tr><td>8-11</td><td>State, Flags, Position</td><td><span class="access-chip read">R</span></td></tr>
-                                <tr><td>16</td><td>Safe Position</td><td><span class="access-chip write">R/W</span></td></tr>
+                                <tr><td>8-11</td><td>State, Flags, Position; Bit3 bewegt</td><td><span class="access-chip read">R</span></td></tr>
+                                <tr><td>16</td><td>Sichere Stellung</td><td><span class="access-chip write">R/W</span></td></tr>
+                                <tr><td>17-22</td><td>Fehler, TMC, Boot, Protokoll v3</td><td><span class="access-chip read">R</span></td></tr>
+                                <tr><td>23</td><td>Grad Ziel</td><td><span class="access-chip write">R/W</span></td></tr>
+                                <tr><td>24</td><td>Grad Ist</td><td><span class="access-chip read">R</span></td></tr>
+                                <tr><td>25-26</td><td>Grad Min und Max</td><td><span class="access-chip write">R/W</span></td></tr>
+                                <tr><td>27</td><td>StallGuard Schwelle</td><td><span class="access-chip write">R/W</span></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -329,13 +359,13 @@
                 <div class="expert-tests" aria-label="Host- und Protokolltests">
                     <article>
                         <strong>USB Host Test</strong>
-                        <p>COM-Port scannen, `ID?` und `SAFE?` passiv pruefen, ohne Endkunden-Wizard zu blockieren.</p>
+                        <p>COM-Port pruefen, ID und sichere Stellung passiv auslesen, ohne den Wizard zu blockieren.</p>
                         <button class="ghost-action compact" type="button" data-action="scan">Host testen</button>
                     </article>
                     <article>
-                        <strong>Refresh Machine</strong>
+                        <strong>Fehler neu referenzieren</strong>
                         <p>Fehler quittieren und Referenzfahrt neu starten, ohne die MCU per Reset neu zu booten.</p>
-                        <button class="ghost-action compact" type="button" data-action="refresh-machine">Refresh senden</button>
+                        <button class="ghost-action compact" type="button" data-action="refresh-machine">Fehler neu starten</button>
                     </article>
                     <article>
                         <strong>Modbus TCP Test</strong>
@@ -378,7 +408,7 @@
                         <p class="section-kicker">Home Automation</p>
                         <h2 id="integrations-title">Exportadapter</h2>
                     </div>
-                    <button class="ghost-action compact" type="button" data-action="export">Export testen</button>
+                    <button class="ghost-action compact" type="button" data-action="export">Export erzeugen</button>
                 </div>
                 <div class="adapter-matrix">
                     <article><span>LX</span><strong>Loxone</strong><em>Virtuelle Ein-/Ausgaenge</em></article>

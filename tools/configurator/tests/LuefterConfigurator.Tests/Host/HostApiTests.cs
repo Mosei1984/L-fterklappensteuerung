@@ -27,6 +27,9 @@ public sealed class HostApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Contains("command-center", page, StringComparison.Ordinal);
         Assert.NotNull(state);
         Assert.Equal(250, state.SafePositionPromille);
+        Assert.Equal(0, state.SoftMinDegree);
+        Assert.Equal(90, state.SoftMaxDegree);
+        Assert.Equal(100, state.StallGuardThreshold);
         Assert.Empty(state.Controllers);
     }
 
@@ -36,7 +39,7 @@ public sealed class HostApiTests : IClassFixture<WebApplicationFactory<Program>>
         using var client = factory.CreateClient();
 
         var scan = await PostAsync(client, "/api/controllers/scan");
-        var config = await client.PutAsJsonAsync("/api/controllers/config", new ConfiguratorWriteConfigRequest(13, 640));
+        var config = await client.PutAsJsonAsync("/api/controllers/config", new ConfiguratorWriteConfigRequest(13, 640, 10, 80, 64));
         var configured = await config.Content.ReadFromJsonAsync<ConfiguratorOperationResult>();
         var safe = await PostAsync(client, "/api/commands/safe");
         var refresh = await PostAsync(client, "/api/commands/refresh-machine");
@@ -49,8 +52,13 @@ public sealed class HostApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.True(configured.Success);
         Assert.Equal(13, configured.Snapshot.ActiveDeviceId);
         Assert.Equal(640, configured.Snapshot.SafePositionPromille);
+        Assert.Equal(10, configured.Snapshot.SoftMinDegree);
+        Assert.Equal(80, configured.Snapshot.SoftMaxDegree);
+        Assert.Equal(64, configured.Snapshot.StallGuardThreshold);
         Assert.Contains(configured.Snapshot.Log, line => line.Contains("ID 13", StringComparison.Ordinal));
         Assert.Contains(configured.Snapshot.Log, line => line.Contains("SAFE 640", StringComparison.Ordinal));
+        Assert.Contains(configured.Snapshot.Log, line => line.Contains("SOFTMIN_DEG 10", StringComparison.Ordinal));
+        Assert.Contains(configured.Snapshot.Log, line => line.Contains("STALLGUARD 64", StringComparison.Ordinal));
         Assert.True(safe.Success);
         Assert.DoesNotContain(safe.Snapshot.Log, line => line.Contains("GOTO", StringComparison.OrdinalIgnoreCase));
         Assert.True(refresh.Success);

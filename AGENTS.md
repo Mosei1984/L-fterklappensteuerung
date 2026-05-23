@@ -32,11 +32,11 @@ powershell -ExecutionPolicy Bypass -File .\tools\run_quality_checks.ps1
 
 Expected current coverage:
 
-- Firmware native tests: 65 passing tests.
+- Firmware native tests: 73 passing tests.
 - Pico firmware build: `pico` environment succeeds.
 - PlatformIO clang-tidy/cppcheck: native and pico pass.
 - Standalone cppcheck/MISRA addon path runs.
-- Configurator tests: 61 passing tests.
+- Configurator tests: 65 passing tests.
 
 Run the hard all-functions gate before push, release, installer changes or
 completion claims:
@@ -95,11 +95,14 @@ artifacts/configurator-installer/win-x64/Luefterklappen-Konfigurator-win-x64.zip
   homing and overload/blockage detection during normal movement.
 - Modbus broadcast ID `0` must not execute writes for this home-use controller.
 - Safe position is configurable in `0..1000` permille and persisted with CRC.
-- Persistent device ID and safe position use a two-sector flash journal with
-  generation and CRC validation.
+- Position commands and limits can use steps, `0..1000` permille or `0..90`
+  degrees; `0` degrees is open/horizontal and `90` degrees is closed/vertical.
+- Persistent device ID, safe position and StallGuard threshold use a two-sector
+  flash journal with generation and CRC validation.
 - Diagnostic Modbus registers `17..22` are read-only and append the stable
   fault reason, fault count, settings status, TMC health, boot reason and
-  firmware protocol version.
+  firmware protocol version `3`; degree/StallGuard configuration registers are
+  `23..27`.
 - Service text diagnostics are `DIAG?`, `FAULT?` and non-moving `SELFTEST?`.
 - `REFRESH` / Modbus command `5` is the preferred recovery after a controller
   fault: it stops, clears the fault path, and rehomes without rebooting the MCU.
@@ -138,7 +141,7 @@ configurator should guide normal users through Loxone setup first:
 1. Prepare Loxone/Modbus TCP settings.
 2. Detect Pico over USB.
 3. Flash UF2 if needed.
-4. Write ID, safe position and limits.
+4. Write ID, safe position, degree limits and StallGuard threshold.
 5. Generate and download Loxone XML/JSON/Markdown.
 6. Run final status and gateway checks.
 

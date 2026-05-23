@@ -19,6 +19,11 @@ public sealed class ExportAdapterTests
         Assert.Equal("loxone-fanflap-17.md", export.FileName);
         Assert.Contains("Modbus ID: 17", export.Content, StringComparison.Ordinal);
         Assert.Contains("safe_position_promille", export.Content, StringComparison.Ordinal);
+        Assert.Contains("target_degree", export.Content, StringComparison.Ordinal);
+        Assert.Contains("current_degree", export.Content, StringComparison.Ordinal);
+        Assert.Contains("soft_min_degree", export.Content, StringComparison.Ordinal);
+        Assert.Contains("soft_max_degree", export.Content, StringComparison.Ordinal);
+        Assert.Contains("stallguard_threshold", export.Content, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -42,12 +47,21 @@ public sealed class ExportAdapterTests
         Assert.Contains("Modbus", xml.Root?.Name.LocalName ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(xml.Descendants().Select(element => element.Value), value => value.Contains("17", StringComparison.Ordinal));
         Assert.Contains(xml.Descendants().Select(element => element.Value), value => value.Contains("safe_position", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(xml.Descendants().Select(element => element.Value), value => value.Contains("target_degree", StringComparison.OrdinalIgnoreCase));
 
         using var json = JsonDocument.Parse(await File.ReadAllTextAsync(jsonPath));
         Assert.Equal("fanflap", json.RootElement.GetProperty("profileId").GetString());
         Assert.Equal(17, json.RootElement.GetProperty("deviceId").GetInt32());
         Assert.Equal(5, json.RootElement.GetProperty("commands").GetProperty("refreshMachine").GetInt32());
-        Assert.True(json.RootElement.GetProperty("registers").GetArrayLength() > 0);
+        Assert.Equal(28, json.RootElement.GetProperty("registers").GetArrayLength());
+        Assert.Contains(json.RootElement.GetProperty("registers").EnumerateArray(), register =>
+            register.GetProperty("name").GetString() == "current_degree");
+        Assert.Contains(json.RootElement.GetProperty("registers").EnumerateArray(), register =>
+            register.GetProperty("name").GetString() == "soft_min_degree");
+        Assert.Contains(json.RootElement.GetProperty("registers").EnumerateArray(), register =>
+            register.GetProperty("name").GetString() == "soft_max_degree");
+        Assert.Contains(json.RootElement.GetProperty("registers").EnumerateArray(), register =>
+            register.GetProperty("name").GetString() == "stallguard_threshold");
     }
 
     [Fact]

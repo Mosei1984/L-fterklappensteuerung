@@ -45,6 +45,8 @@ class Tmc2209Driver {
 
   void initialize();
   void sendCommand(std::uint8_t address, std::uint8_t value);
+  void setStallGuardThreshold(std::uint8_t threshold);
+  std::uint8_t stallGuardThreshold() const;
   bool readRegister(std::uint8_t registerAddress, std::uint32_t& value);
   Tmc2209PollResult pollStallGuardStatus();
   bool pollStallGuard();

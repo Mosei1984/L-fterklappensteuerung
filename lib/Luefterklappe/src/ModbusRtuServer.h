@@ -39,7 +39,12 @@ enum class ModbusRegister : std::uint16_t {
   SettingsStatus = 19U,
   TmcHealth = 20U,
   BootReason = 21U,
-  FirmwareProtocolVersion = 22U
+  FirmwareProtocolVersion = 22U,
+  TargetDegree = 23U,
+  CurrentDegree = 24U,
+  SoftMinDegree = 25U,
+  SoftMaxDegree = 26U,
+  StallGuardThreshold = 27U
 };
 
 enum class ModbusCommand : std::uint16_t {
@@ -98,6 +103,10 @@ class ModbusRtuServer {
                                       std::size_t count) const;
   std::uint8_t validateRegisterWrite(RegisterWrite write) const;
   bool softEndstopRangeCanBeApplied(SoftEndstopRange range) const;
+  bool degreeRangeCanBeApplied(std::uint16_t minDegree,
+                               std::uint16_t maxDegree) const;
+  bool applyDegreeSoftEndstops(std::uint16_t minDegree,
+                               std::uint16_t maxDegree);
   bool applyRegisterWrites(const RegisterWrite* writes, std::size_t count);
   bool writeRegister(RegisterWrite write);
   bool readRegister(std::uint16_t address, std::uint16_t& value) const;
@@ -112,6 +121,8 @@ class ModbusRtuServer {
   static std::int32_t combineWords(std::uint16_t high, std::uint16_t low);
   std::int32_t positionFromPermille(std::uint16_t permille) const;
   std::uint16_t permilleFromPosition(std::int32_t position) const;
+  std::int32_t positionFromDegree(std::uint16_t degree) const;
+  std::uint16_t degreeFromPosition(std::int32_t position) const;
 
   FanFlapController& controller_;
   UartPort& uart_;

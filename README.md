@@ -10,7 +10,8 @@ Raspberry-Pi-Pico/Arduino-HAL.
 - Portable C++14-Core-Logik ohne Arduino-Abhaengigkeit.
 - Homing gegen Min-/Max-Endschalter mit Plausibilitaetspruefung und
   StallGuard-Redundanz, wenn ein Endschalter nicht ausloest.
-- Soft-Endstops und Zielpositionen in Steps oder `0..1000` Promille.
+- Soft-Endstops und Zielpositionen in Steps, `0..1000` Promille oder
+  `0..90` Grad; `0` Grad ist offen/waagrecht, `90` Grad geschlossen/senkrecht.
 - Safe-Position in Promille; nach gueltigem Homing faehrt die Klappe in diese
   definierte Lueftungsstellung.
 - Debounced Endschalter und Boot-Plausibilitaet gegen beide gleichzeitig
@@ -18,10 +19,11 @@ Raspberry-Pi-Pico/Arduino-HAL.
 - Fehlerzustand mit stabilem Fehlergrund, Fault-Counter, No-Progress-Timeout,
   TMC-Kommunikationsfehler und StallGuard waehrend normaler Bewegung.
 - Reset-Timeout mit automatischem Re-Homing.
-- TMC2209-UART mit Datagramm-CRC, Konfiguration und StallGuard-Abfrage.
+- TMC2209-UART mit Datagramm-CRC, Konfiguration und einstellbarer
+  StallGuard-Abfrage.
 - Modbus-RTU-Slave fuer Loxone/Home-Automation auf RS485.
-- Geraete-ID `1..247` und Safe-Position werden im Pico-Flash ueber zwei
-  physische Sektoren journalisiert und mit CRC persistiert.
+- Geraete-ID `1..247`, Safe-Position und StallGuard-Schwelle werden im
+  Pico-Flash ueber zwei physische Sektoren journalisiert und mit CRC persistiert.
 - Altes adressiertes Textprotokoll als Service-/Debugpfad.
 - Native Unit-Tests mit Fake-Stepper, Fake-UART, Fake-Zeit und Fake-Events.
 - clang-tidy, cppcheck und MISRA-Addon-Checks ueber das Quality-Skript.
@@ -71,7 +73,7 @@ flowchart TB
     Controller["FanFlapController<br/>state machine, debounce, homing, faults"]
     Modbus["ModbusRtuServer<br/>CRC16, address filter, registers"]
     Tmc["Tmc2209Driver<br/>UART datagrams, CRC, StallGuard"]
-    Settings["PersistentSettings<br/>journaled device ID + safe position, CRC"]
+    Settings["PersistentSettings<br/>journaled ID, safe position, StallGuard, CRC"]
     Ports["IoPorts interfaces<br/>StepperPort, UartPort, DelayPort, EventSink"]
   end
 
@@ -85,8 +87,8 @@ flowchart TB
 
   subgraph Quality["Quality and agent guardrails"]
     HardGate["tools/run_hard_checks.ps1<br/>all-functions gate"]
-    FirmwareTests["Firmware native tests<br/>65 cases"]
-    ConfigTests["Configurator xUnit tests<br/>61 cases + Cobertura"]
+    FirmwareTests["Firmware native tests<br/>73 cases"]
+    ConfigTests["Configurator xUnit tests<br/>65 cases + Cobertura"]
     StaticChecks["clang-tidy, cppcheck, MISRA path<br/>markdownlint, Razor, LSP logs"]
     AgentHooks["tools/agent-hooks<br/>repo and subagent policy smoke tests"]
   end
@@ -145,7 +147,7 @@ flowchart TB
 | `lib/Luefterklappe/src/FanFlapController.*` | State-Machine, Homing, Softlimits, Fehlerbehandlung, Textbefehle |
 | `lib/Luefterklappe/src/Tmc2209Driver.*` | TMC2209-UART-Datagramme, CRC, Konfiguration, StallGuard |
 | `lib/Luefterklappe/src/ModbusRtuServer.*` | Modbus-RTU-Slave, Registermap, CRC16, Exception Responses |
-| `lib/Luefterklappe/src/PersistentSettings.*` | Persistente ID/Safe-Position mit Dual-Sektor-Journal, Magic, Version und CRC |
+| `lib/Luefterklappe/src/PersistentSettings.*` | Persistente ID/Safe-Position/StallGuard-Schwelle mit Dual-Sektor-Journal, Magic, Version und CRC |
 | `src/main.cpp` | Pico/Arduino-HAL, Pinning, Serial1 RS485, TMC-UART, GPIO, Flash, Watchdog und LED |
 | `test/test_controller/test_main.cpp` | Native Unit-Tests fuer Core, Modbus und TMC |
 | `tools/la/` | sigrok-cli Capture, Decode und Offline-Analyse |
@@ -169,7 +171,7 @@ und fuehrt zuerst durch den **Loxone Setup Wizard**:
 1. Loxone/Modbus-TCP-Daten vorbereiten.
 2. Pico ueber USB erkennen.
 3. UF2-Firmware pruefen und flashen.
-4. Controller-ID, Safe-Position und Grenzen schreiben.
+4. Controller-ID, Safe-Position, Grad-Limits und StallGuard-Schwelle schreiben.
 5. Loxone XML, JSON-Konfig und Markdown-Doku erzeugen und herunterladen.
 6. Abschlusscheck fuer Statusregister und Gateway durchlaufen.
 
@@ -296,8 +298,10 @@ Konfiguration/Diagnose/StallGuard. Praktische Punkte fuer dieses Modul:
 - `VIO` an `3V3`, `GND` gemeinsam mit Pico, RS485 und Motorversorgung.
 - Kuehlkoerper montieren und Motorstrom/Vref am Modul passend zum Motor setzen.
   Firmware-UART ersetzt keine elektrische Strombegrenzung.
-- StallGuard4 ist als Zusatzdiagnose aktiv, mechanische Endschalter bleiben in
-  dieser Steuerung die primaere Referenz fuer Home-Betrieb.
+- StallGuard4 ist als Zusatzdiagnose aktiv. Die Schwelle ist ueber
+  `STALLGUARD <0..255>` bzw. Register `27` einstellbar; mechanische
+  Endschalter bleiben in dieser Steuerung die primaere Referenz fuer
+  Home-Betrieb.
 
 ## Safe-Zustand fuer Wohnraumlueftung
 
@@ -365,7 +369,7 @@ Adressen sind 0-basiert, passend fuer Loxone Config.
 | 6 | R/W | Soft-Max Steps Low Word |
 | 7 | R/W | Modbus-/Geraete-ID `1..247` |
 | 8 | R | Controller-State |
-| 9 | R | Flags: Bit0 ready, Bit1 fault, Bit2 soft endstops active |
+| 9 | R | Flags: Bit0 ready, Bit1 fault, Bit2 soft endstops active, Bit3 moving |
 | 10 | R | Istposition Steps High Word |
 | 11 | R | Istposition Steps Low Word |
 | 12 | R | Homing-Max Steps High Word |
@@ -378,7 +382,12 @@ Adressen sind 0-basiert, passend fuer Loxone Config.
 | 19 | R | Letzter Settings-Status: `0` unknown, `1` default, `2` loaded, `3` saved, `4` failed |
 | 20 | R | TMC-Health: `0` unknown, `1` ok, `2` communication error, `3` disabled by build |
 | 21 | R | Boot-Grund: `0` unknown, `1` power-on, `2` watchdog, `3` software reset |
-| 22 | R | Firmware-Protokollversion, aktuell `2` |
+| 22 | R | Firmware-Protokollversion, aktuell `3` |
+| 23 | R/W | `target_degree`: Zielwinkel `0..90` Grad; `0` offen/waagrecht, `90` geschlossen/senkrecht |
+| 24 | R | `current_degree`: Istwinkel `0..90` Grad |
+| 25 | R/W | `soft_min_degree`: Soft-Min Winkel `0..90` Grad |
+| 26 | R/W | `soft_max_degree`: Soft-Max Winkel `0..90` Grad |
+| 27 | R/W | `stallguard_threshold`: StallGuard-Schwelle `0..255`; wird im Flash gespeichert und als TMC2209 SGTHRS geschrieben |
 
 `FaultReason`-Werte in Register `17`:
 
@@ -400,14 +409,20 @@ Adressen sind 0-basiert, passend fuer Loxone Config.
 
 Empfohlen fuer Loxone:
 
-- Register `14` als analoger Aktor `0..1000`.
+- Register `23` als analoger Aktor `0..90` Grad fuer normale Bedienung.
+- Optional Register `14` als Legacy-Aktor `0..1000` Promille.
 - Register `16` als Parameter fuer die Safe-Position verwenden.
-- Register `8`, `9`, `15..22` langsam pollen, z. B. alle `2..5 s`.
+- Register `25`, `26` und `27` als Expertenparameter fuer Grad-Limits und
+  StallGuard-Schwelle verwenden.
+- Nach dem Schreiben von Register `23` oder `14` Register `9`, `15` und `24`
+  pollen:
+  Bit3 `moving` bleibt gesetzt, bis die Istposition die Zielposition erreicht.
+- Register `8`, `9`, `15..24` langsam pollen, z. B. alle `2..5 s`.
 - Zielpositions-Schreibbefehle eventgetrieben senden, nicht dauerhaft pollen.
 - Register `0` mit Wert `5` als Fehler-Rehome/Refresh-Machine-Befehl
   vorsehen, damit nach Blockade oder Endschalterfehler kein Pico-Reset noetig
   ist.
-- Register `0..22` koennen in einem Holding-Register-Block gelesen werden,
+- Register `0..27` koennen in einem Holding-Register-Block gelesen werden,
   damit Loxone/Modbus-TCP-Gateways den Zustand konsistent erfassen.
 - Schnelle Bewegung, Endschalter, Softlimits, StallGuard und Fehlerbehandlung
   lokal im Controller lassen.
@@ -422,14 +437,19 @@ adressierte Befehle funktionieren dort ebenfalls.
 
 | Befehl | Wirkung |
 | --- | --- |
-| `ID<n> GOTO <steps>` | Zielposition in Steps setzen |
+| `ID<n> GOTO <steps>` | Zielposition in Steps setzen; nach Erreichen meldet der Pico `Position erreicht: Steps=<steps> Promille=<0..1000> Grad=<0..90>` |
+| `ID<n> GOTO_DEG <0..90>` | Zielwinkel setzen; `0` Grad offen/waagrecht, `90` Grad geschlossen/senkrecht |
 | `ID<n> POS?` | aktuelle Position melden |
+| `ID<n> DEG?` | aktuelle Position in Grad melden |
 | `ID<n> HOME` | Homing starten |
 | `ID<n> REFRESH` | Fehler quittieren und Homing ohne MCU-Reset starten |
 | `ID<n> REFRESH MACHINE` | Alias fuer `REFRESH` |
 | `ID<n> RESET` | Kompatibilitaetsbefehl fuer Fehler quittieren und Homing |
 | `ID<n> SOFTMIN <steps>` | Soft-Min setzen |
 | `ID<n> SOFTMAX <steps>` | Soft-Max setzen |
+| `ID<n> SOFTMIN_DEG <0..90>` | minimal erlaubten Winkel setzen |
+| `ID<n> SOFTMAX_DEG <0..90>` | maximal erlaubten Winkel setzen |
+| `ID<n> DEGLIMITS?` | Grad-Limits melden |
 | `ID<n> SOFTENDSTOPS ON` | Soft-Endstops aktivieren |
 | `ID<n> SOFTENDSTOPS OFF` | Soft-Endstops deaktivieren |
 | `ID<n> SOFTENDSTOPS?` | Soft-Endstop-Status melden |
@@ -438,6 +458,8 @@ adressierte Befehle funktionieren dort ebenfalls.
 | `ID<n> SETID <1..247>` | Alias fuer ID setzen |
 | `ID<n> SAFE?` | Safe-Position in Promille melden |
 | `ID<n> SAFE <0..1000>` | Safe-Position setzen und speichern |
+| `ID<n> STALLGUARD?` | StallGuard-Schwelle melden |
+| `ID<n> STALLGUARD <0..255>` | StallGuard-Schwelle setzen, speichern und auf SGTHRS schreiben |
 | `ID<n> FAULT?` | letzten Fehlergrund und Fault-Counter melden |
 | `ID<n> DIAG?` | Diagnose-Snapshot mit Fehlergrund und Fault-Counter melden |
 | `ID<n> SELFTEST?` | nicht-bewegenden Selbsttest mit State, ID, Safe-Position und Endschaltern melden |
@@ -506,7 +528,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_che
 
 Der No-Hardware-Modus prueft Hard-Gate, Pico-UF2, SHA256 und Doku-Safety. Der
 Hardware-Modus prueft zusaetzlich `DIAG?`, `FAULT?`, `SELFTEST?`, Modbus
-`0..22`, Diagnose-Register `17..22`, Illegal-Address-Exceptions und
+`0..27`, Diagnose-Register `17..22`, Grad-/StallGuard-Register,
+Illegal-Address-Exceptions und
 Broadcast-Stille. Mit `-RequireLogicAnalyzer` muss auch die sigrok-Analyse ohne
 `FAIL:`-Zeile laufen.
 
@@ -534,10 +557,10 @@ Oder zur Laufzeit ueber Modbus Holding-Register `7` bzw. Servicebefehl:
 ID1 SETID 7
 ```
 
-Die Laufzeit-ID wird zusammen mit der Safe-Position in den letzten zwei
-Pico-Flash-Sektoren als Journal gespeichert. Jeder Datensatz enthaelt Magic,
-Version, Generation und CRC; bei ungueltigem oder leerem Speicher werden
-Defaultwerte benutzt.
+Die Laufzeit-ID wird zusammen mit der Safe-Position und StallGuard-Schwelle in
+den letzten zwei Pico-Flash-Sektoren als Journal gespeichert. Jeder Datensatz
+enthaelt Magic, Version, Generation und CRC; bei ungueltigem oder leerem
+Speicher werden Defaultwerte benutzt.
 
 Safe-Position setzen:
 
@@ -558,22 +581,30 @@ Alternativ Modbus Holding-Register `16` mit `0..1000` schreiben.
    bzw. kopieren.
 4. Schnittstelle auf `38400`, `8N1` einstellen.
 5. Slave-ID auf die Firmware-ID setzen, Default `1`.
-6. Analogausgang auf Holding-Register `14`, Wertebereich `0..1000`.
-7. Parameter fuer Safe-Position auf Holding-Register `16`, Wertebereich
+6. Analogausgang auf Holding-Register `23`, Wertebereich `0..90` Grad.
+7. Optionaler Legacy-Analogausgang auf Holding-Register `14`, Wertebereich
    `0..1000`.
-8. Status langsam lesen: Register `8`, `9`, `15`, `16`, Intervall `2..5 s`.
-9. Bei mehreren Klappen jede Klappe mit eigener ID betreiben.
+8. Parameter fuer Safe-Position auf Holding-Register `16`, Wertebereich
+   `0..1000`.
+9. Parameter fuer Grad-Limits und StallGuard auf Register `25..27`.
+10. Status langsam lesen: Register `8`, `9`, `15`, `16`, `24`, Intervall
+    `2..5 s`.
+11. Bei mehreren Klappen jede Klappe mit eigener ID betreiben.
 
 Manuelle Minimal-Konfiguration ohne Exportdateien:
 
 1. Loxone Modbus Extension als RTU-Master verwenden.
 2. Schnittstelle auf `38400`, `8N1` einstellen.
 3. Slave-ID auf die Firmware-ID setzen, Default `1`.
-4. Analogausgang auf Holding-Register `14`, Wertebereich `0..1000`.
-5. Parameter fuer Safe-Position auf Holding-Register `16`, Wertebereich
+4. Analogausgang auf Holding-Register `23`, Wertebereich `0..90` Grad.
+5. Optionaler Legacy-Analogausgang auf Holding-Register `14`, Wertebereich
    `0..1000`.
-6. Status langsam lesen: Register `8`, `9`, `15`, `16`, Intervall `2..5 s`.
-7. Bei mehreren Klappen jede Klappe mit eigener ID betreiben.
+6. Parameter fuer Safe-Position auf Holding-Register `16`, Wertebereich
+   `0..1000`.
+7. Parameter fuer Grad-Limits und StallGuard auf Register `25..27`.
+8. Status langsam lesen: Register `8`, `9`, `15`, `16`, `24`, Intervall
+   `2..5 s`.
+9. Bei mehreren Klappen jede Klappe mit eigener ID betreiben.
 
 ### 7. Logic-Analyzer-Test ausfuehren
 
@@ -632,8 +663,9 @@ Reset-Timeout, unerwartete Endschalter, StallGuard-Redundanz beim Homing,
 Wegfahr-Free-Check, No-Progress-Timeout, Safe-Position,
 Dual-Sektor-Flash-Persistenz mit CRC und Generationsauswahl,
 Soft-Endstop-Clamping, ungueltige serielle Argumente, ID-Adressierung,
-Modbus-RTU-CRC, Fremdadressen, Exception Responses, Promille-Zielregister,
-Diagnose-Register `17..22`, Boot-Reason, Service-Selbsttest, Bewegungen ohne
+Modbus-RTU-CRC, Fremdadressen, Exception Responses, Promille- und
+Grad-Zielregister, Diagnose-Register `17..22`, Grad-Limits,
+StallGuard-Schwelle, Boot-Reason, Service-Selbsttest, Bewegungen ohne
 Soft-Endstops und TMC2209-UART-Frames ab.
 
 ## MCU-Portierung

@@ -184,16 +184,16 @@ function Assert-ModbusDiagnostics {
         [byte] $DeviceId
     )
 
-    $readAll = New-ModbusFrame -Payload ([byte[]] @($DeviceId, 0x03, 0x00, 0x00, 0x00, 0x17))
+    $readAll = New-ModbusFrame -Payload ([byte[]] @($DeviceId, 0x03, 0x00, 0x00, 0x00, 0x1c))
     $readDiagnostics = New-ModbusFrame -Payload ([byte[]] @($DeviceId, 0x03, 0x00, 0x11, 0x00, 0x06))
-    $readPastEnd = New-ModbusFrame -Payload ([byte[]] @($DeviceId, 0x03, 0x00, 0x16, 0x00, 0x02))
+    $readPastEnd = New-ModbusFrame -Payload ([byte[]] @($DeviceId, 0x03, 0x00, 0x1b, 0x00, 0x02))
     $writeDiagnostic = New-ModbusFrame -Payload ([byte[]] @($DeviceId, 0x06, 0x00, 0x11, 0x00, 0x01))
     $broadcastWrite = New-ModbusFrame -Payload ([byte[]] @(0x00, 0x06, 0x00, 0x00, 0x00, 0x00))
 
     $readAllResponse = Send-ModbusFrame -Port $Port -Frame $readAll
-    Add-ReportBlock -Title "Modbus read 0..22" -Lines @([BitConverter]::ToString($readAllResponse))
+    Add-ReportBlock -Title "Modbus read 0..27" -Lines @([BitConverter]::ToString($readAllResponse))
     if (($readAllResponse.Length -lt 5) -or (-not (Test-ModbusCrc -Frame $readAllResponse))) {
-        throw 'Modbus read 0..22 returned no valid CRC frame'
+        throw 'Modbus read 0..27 returned no valid CRC frame'
     }
 
     $readDiagnosticsResponse = Send-ModbusFrame -Port $Port -Frame $readDiagnostics
@@ -203,10 +203,10 @@ function Assert-ModbusDiagnostics {
     }
 
     $readPastEndResponse = Send-ModbusFrame -Port $Port -Frame $readPastEnd
-    Add-ReportBlock -Title "Modbus read past 22" -Lines @([BitConverter]::ToString($readPastEndResponse))
+    Add-ReportBlock -Title "Modbus read past 27" -Lines @([BitConverter]::ToString($readPastEndResponse))
     if (($readPastEndResponse.Length -lt 5) -or (-not (Test-ModbusCrc -Frame $readPastEndResponse)) -or
         ($readPastEndResponse[1] -ne 0x83) -or ($readPastEndResponse[2] -ne 0x02)) {
-        throw 'Modbus read past 22 did not return illegal-address exception'
+        throw 'Modbus read past 27 did not return illegal-address exception'
     }
 
     $writeDiagnosticResponse = Send-ModbusFrame -Port $Port -Frame $writeDiagnostic

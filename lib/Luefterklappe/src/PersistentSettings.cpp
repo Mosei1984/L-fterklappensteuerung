@@ -5,17 +5,20 @@ namespace {
 
 constexpr std::uint8_t kMagic0 = 'L';
 constexpr std::uint8_t kMagic1 = 'K';
-constexpr std::uint8_t kVersion = 2U;
+constexpr std::uint8_t kLegacyVersion = 2U;
+constexpr std::uint8_t kVersion = 3U;
 constexpr std::size_t kMagic0Offset = 0U;
 constexpr std::size_t kMagic1Offset = 1U;
 constexpr std::size_t kVersionOffset = 2U;
 constexpr std::size_t kDeviceIdOffset = 3U;
 constexpr std::size_t kSafePositionOffset = 4U;
-constexpr std::size_t kGenerationOffset = 6U;
-constexpr std::size_t kReservedOffset = 10U;
+constexpr std::size_t kLegacyGenerationOffset = 6U;
+constexpr std::size_t kStallGuardThresholdOffset = 6U;
+constexpr std::size_t kGenerationOffset = 7U;
+constexpr std::size_t kReservedOffset = 11U;
 constexpr std::size_t kCrcOffset = 14U;
 constexpr std::size_t kCrcLength = 14U;
-constexpr PersistentSettings kDefaultSettings{1U, 1000U};
+constexpr PersistentSettings kDefaultSettings{1U, 1000U, 100U};
 
 }  // namespace
 
@@ -84,7 +87,9 @@ bool PersistentSettingsStore::save(const PersistentSettings settings) {
   return written.valid && (written.generation == nextGeneration) &&
          (written.settings.deviceId == settings.deviceId) &&
          (written.settings.safePositionPermille ==
-          settings.safePositionPermille);
+          settings.safePositionPermille) &&
+         (written.settings.stallGuardThreshold ==
+          settings.stallGuardThreshold);
 }
 
 bool PersistentSettingsStore::isValid(const PersistentSettings settings) {
@@ -123,7 +128,8 @@ bool PersistentSettingsStore::decodeRecord(
     const std::uint8_t* const data, const std::size_t slot,
     DecodedRecord& record) const {
   if ((data[kMagic0Offset] != kMagic0) || (data[kMagic1Offset] != kMagic1) ||
-      (data[kVersionOffset] != kVersion)) {
+      ((data[kVersionOffset] != kVersion) &&
+       (data[kVersionOffset] != kLegacyVersion))) {
     return false;
   }
 
@@ -133,15 +139,20 @@ bool PersistentSettingsStore::decodeRecord(
     return false;
   }
 
+  const bool legacyRecord = data[kVersionOffset] == kLegacyVersion;
   const PersistentSettings settings{
-      data[kDeviceIdOffset], readUint16(data, kSafePositionOffset)};
+      data[kDeviceIdOffset],
+      readUint16(data, kSafePositionOffset),
+      legacyRecord ? defaults_.stallGuardThreshold
+                   : data[kStallGuardThresholdOffset]};
   if (!isValid(settings)) {
     return false;
   }
 
   record.valid = true;
   record.slot = slot;
-  record.generation = readUint32(data, kGenerationOffset);
+  record.generation = readUint32(
+      data, legacyRecord ? kLegacyGenerationOffset : kGenerationOffset);
   record.settings = settings;
   return true;
 }
@@ -158,8 +169,11 @@ void PersistentSettingsStore::encodeRecord(
   data[kVersionOffset] = kVersion;
   data[kDeviceIdOffset] = settings.deviceId;
   writeUint16(data, kSafePositionOffset, settings.safePositionPermille);
+  data[kStallGuardThresholdOffset] = settings.stallGuardThreshold;
   writeUint32(data, kGenerationOffset, generation);
-  writeUint32(data, kReservedOffset, 0U);
+  data[kReservedOffset] = 0U;
+  data[kReservedOffset + 1U] = 0U;
+  data[kReservedOffset + 2U] = 0U;
   writeUint16(data, kCrcOffset, crc16(data, kCrcLength));
 }
 

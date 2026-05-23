@@ -299,11 +299,23 @@ class SerialEventSink final : public EventSink {
         output().print(F("Bewege zu Position: "));
         output().println(event.first);
         break;
+      case EventId::MoveReached:
+        output().print(F("Position erreicht: Steps="));
+        output().print(event.first);
+        output().print(F(" Promille="));
+        output().print(event.second);
+        output().print(F(" Grad="));
+        output().println(event.third);
+        break;
       case EventId::MotorNotReady:
         output().println(F("Motor nicht bereit."));
         break;
       case EventId::PositionReported:
         output().print(F("Aktuelle Position: "));
+        output().println(event.first);
+        break;
+      case EventId::DegreePositionReported:
+        output().print(F("Aktuelle Position Grad: "));
         output().println(event.first);
         break;
       case EventId::ResetDuringWait:
@@ -330,6 +342,12 @@ class SerialEventSink final : public EventSink {
         output().print(F("Min: "));
         output().print(event.first);
         output().print(F(", Max: "));
+        output().println(event.second);
+        break;
+      case EventId::DegreeLimitsReported:
+        output().print(F("Grad-Limits: Min="));
+        output().print(event.first);
+        output().print(F(", Max="));
         output().println(event.second);
         break;
       case EventId::DeviceIdReported:
@@ -385,6 +403,17 @@ class SerialEventSink final : public EventSink {
         break;
       case EventId::StallDetected:
         output().println(F("Stall erkannt."));
+        break;
+      case EventId::StallGuardThresholdReported:
+        output().print(F("StallGuard Threshold: "));
+        output().println(event.first);
+        break;
+      case EventId::StallGuardThresholdChanged:
+        output().print(F("StallGuard Threshold gesetzt: "));
+        output().println(event.first);
+        break;
+      case EventId::StallGuardThresholdInvalid:
+        output().println(F("Ungueltiger StallGuard Threshold. Erlaubt: 0..255."));
         break;
       case EventId::TmcInitializationStarted:
         output().println(F("Initialisiere TMC2209."));
@@ -453,7 +482,8 @@ Tmc2209Driver tmcDriver(tmcUartPort, delayPort, eventSink);
 #endif
 PersistentSettings activeSettings{
     static_cast<std::uint8_t>(kDefaultDeviceId),
-    luefterklappe::kDefaultControllerConfig.safePositionPermille};
+    luefterklappe::kDefaultControllerConfig.safePositionPermille,
+    luefterklappe::kDefaultTmc2209Config.stallGuardThreshold};
 FlashSettingsStorage settingsStorage;
 PersistentSettingsStore settingsStore(settingsStorage, activeSettings);
 BootReason bootReason = BootReason::Unknown;
@@ -486,6 +516,16 @@ void persistSettingsFromEvent(const Event& event) {
       if ((event.first >= 0) && (event.first <= 1000)) {
         activeSettings.safePositionPermille =
             static_cast<std::uint16_t>(event.first);
+        changed = true;
+      }
+      break;
+    case EventId::StallGuardThresholdChanged:
+      if ((event.first >= 0) && (event.first <= 255)) {
+        activeSettings.stallGuardThreshold =
+            static_cast<std::uint8_t>(event.first);
+#if LUEFTERKLAPPE_USE_TMC2209_UART
+        tmcDriver.setStallGuardThreshold(activeSettings.stallGuardThreshold);
+#endif
         changed = true;
       }
       break;
@@ -784,10 +824,13 @@ void setup() {
   static_cast<void>(controller.setDeviceId(activeSettings.deviceId));
   static_cast<void>(
       controller.setSafePositionPermille(activeSettings.safePositionPermille));
+  static_cast<void>(
+      controller.setStallGuardThreshold(activeSettings.stallGuardThreshold));
   settingsPersistenceEnabled = true;
   controller.begin();
 #if LUEFTERKLAPPE_USE_TMC2209_UART
   tmcDriver.initialize();
+  tmcDriver.setStallGuardThreshold(activeSettings.stallGuardThreshold);
 #endif
 }
 

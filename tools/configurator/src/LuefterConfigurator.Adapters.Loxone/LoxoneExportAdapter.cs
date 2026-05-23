@@ -28,9 +28,12 @@ public sealed class LoxoneExportAdapter : IHomeAutomationMultiExportAdapter
         builder.AppendLine("32-bit Positionswerte werden High-Word zuerst und Low-Word danach uebertragen.");
         builder.AppendLine();
         builder.AppendLine("Empfohlene Loxone Punkte:");
-        builder.AppendLine("- Analogaktor: `target_promille`, Register 14, Wertebereich 0..1000");
+        builder.AppendLine("- Analogaktor: `target_degree`, Register 23, Wertebereich 0..90; 0 ist offen, 90 geschlossen");
+        builder.AppendLine("- Optionaler Legacy-Aktor: `target_promille`, Register 14, Wertebereich 0..1000");
         builder.AppendLine("- Parameter: `safe_position_promille`, Register 16, Wertebereich 0..1000");
-        builder.AppendLine("- Statussensoren: `state`, `flags`, `position_promille`, Polling 2..5 s");
+        builder.AppendLine("- Parameter: `soft_min_degree`, `soft_max_degree`, Register 25..26");
+        builder.AppendLine("- Expertenparameter: `stallguard_threshold`, Register 27, Wertebereich 0..255");
+        builder.AppendLine("- Statussensoren: `state`, `flags`, `current_degree`, `position_promille`, Polling 2..5 s; `flags` Bit3 meldet laufende Bewegung");
         builder.AppendLine();
         builder.AppendLine("| Address | Name | Type | Access |");
         builder.AppendLine("| --- | --- | --- | --- |");
