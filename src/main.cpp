@@ -91,8 +91,8 @@ constexpr unsigned int kSlowDirectStepHighUs = 1000U;
 constexpr unsigned int kSlowDirectStepLowUs = 4000U;
 constexpr std::uint32_t kDriverEnableSettleMs = 50UL;
 constexpr std::int32_t kMaxDirectStepTestSteps = 3200;
-constexpr std::uint8_t kPinWalkPins[] = {2U, 3U, 7U};
-constexpr std::uint8_t kPinWalkPulseCounts[] = {2U, 3U, 7U};
+constexpr std::uint8_t kPinWalkPins[] = {kDirPin, kStepPin, kEnablePin};
+constexpr std::uint8_t kPinWalkPulseCounts[] = {2U, 4U, 7U};
 constexpr std::uint32_t kPinWalkPulseMs = 20UL;
 
 void kickWatchdog();
@@ -667,7 +667,7 @@ void printPinDiagnostics() {
 }
 
 bool isBringupStepPin(const std::uint8_t pin) {
-  return (pin == 2U) || (pin == 3U);
+  return (pin == kDirPin) || (pin == kStepPin) || (pin == 3U);
 }
 
 void runDirectStepTestOnPins(const std::uint8_t stepPin,
@@ -766,7 +766,9 @@ void runPinWalk() {
 }
 
 void runPinPulse(const std::int32_t pin) {
-  if ((pin != 2) && (pin != 3) && (pin != 7)) {
+  if ((pin != static_cast<std::int32_t>(kDirPin)) &&
+      (pin != static_cast<std::int32_t>(kStepPin)) && (pin != 3) &&
+      (pin != static_cast<std::int32_t>(kEnablePin))) {
     Serial.println(F("PINPULSE ungueltig."));
     return;
   }

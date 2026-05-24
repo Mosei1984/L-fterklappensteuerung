@@ -397,7 +397,7 @@ void bringControllerToReady(FanFlapController& controller, FakeStepper& stepper,
 }
 
 void test_pico_pin_mapping_matches_current_tmc_wiring() {
-  TEST_ASSERT_EQUAL_UINT8(3U, luefterklappe::firmware::kStepPin);
+  TEST_ASSERT_EQUAL_UINT8(4U, luefterklappe::firmware::kStepPin);
   TEST_ASSERT_EQUAL_UINT8(2U, luefterklappe::firmware::kDirPin);
   TEST_ASSERT_EQUAL_UINT8(7U, luefterklappe::firmware::kEnablePin);
   TEST_ASSERT_EQUAL_UINT8(8U, luefterklappe::firmware::kTmcUartTxPin);

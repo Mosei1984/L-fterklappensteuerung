@@ -229,7 +229,7 @@ flowchart LR
   Rs485 -- "GP1 Serial1 RX<br/>Modbus requests" --> Pico
   Rs485 <-->|"CH0 A/B twisted pair + GND<br/>38400 8N1"| Loxone
 
-  Pico -- "GP3 STEP" --> Tmc
+  Pico -- "GP4 STEP" --> Tmc
   Pico -- "GP2 DIR" --> Tmc
   Pico -- "GP7 ENABLE active low" --> Tmc
   Pico -- "GP8 UART TX<br/>Pico to TMC PDN_UART" --> Tmc
@@ -243,7 +243,7 @@ flowchart LR
 
   La -. "D0: GP0 RS485 TX" .-> Pico
   La -. "D1: GP1 RS485 RX" .-> Pico
-  La -. "D2: GP3 STEP" .-> Pico
+  La -. "D2: GP4 STEP" .-> Pico
   La -. "D3: GP2 DIR" .-> Pico
   La -. "D4: GP5 MIN" .-> Pico
   La -. "D5: GP6 MAX" .-> Pico
@@ -258,7 +258,7 @@ flowchart LR
 | `GP0` | TX | Waveshare RS485 CH0 TX/DI | UART `38400 8N1` | `Serial1 TX`, Modbus-Antworten |
 | `GP1` | RX | Waveshare RS485 CH0 RX/RO | UART `38400 8N1` | `Serial1 RX`, Modbus-Anfragen |
 | `GP2` | OUT | TMC2209 `DIR` | 3.3 V digital | AccelStepper DIR |
-| `GP3` | OUT | TMC2209 `STEP` | 3.3 V digital | AccelStepper STEP |
+| `GP4` | OUT | TMC2209 `STEP` | 3.3 V digital | AccelStepper STEP |
 | `GP5` | IN | Min-Endschalter nach GND | `INPUT_PULLUP`, aktiv LOW | Firmware erwartet NO-Schalter nach GND |
 | `GP6` | IN | Max-Endschalter nach GND | `INPUT_PULLUP`, aktiv LOW | Firmware erwartet NO-Schalter nach GND |
 | `GP7` | OUT | TMC2209 `EN`/`ENABLE` | aktiv LOW | LOW = Treiber aktiv |

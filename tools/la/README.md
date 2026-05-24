@@ -23,7 +23,7 @@ dekodiert.
 | --- | --- | --- | --- |
 | D0 | RS485 device TX | GP0 / `Serial1 TX` zum DI des RS485-Moduls | Modbus-Antworten |
 | D1 | RS485 device RX | GP1 / `Serial1 RX` vom RO des RS485-Moduls | Modbus-Anfragen |
-| D2 | STEP | GP3 / Stepper STEP | Pulsbreite und Pulsfolge |
+| D2 | STEP | GP4 / Stepper STEP | Pulsbreite und Pulsfolge |
 | D3 | DIR | GP2 / Stepper DIR | Setup/Hold um STEP |
 | D4 | MIN switch | Endschalter min | Rare-case Diagnose |
 | D5 | MAX switch | Endschalter max | Rare-case Diagnose |
