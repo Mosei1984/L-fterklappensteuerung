@@ -89,6 +89,22 @@ UF2-Artefakt, SHA256, Service-Textdiagnose und Modbus-Diagnoseregister. Mit
 `-RequireLogicAnalyzer` muss zusaetzlich `capture_luefterklappe.ps1` ohne
 `FAIL:`-Zeile durchlaufen.
 
+Der aktive Modbus-RTU-Mastertest ist getrennt vom Logic Analyzer. Er sendet
+echte Frames ueber einen USB-RS485-Adapter und schreibt einen Bericht:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\modbus_rtu_acceptance.ps1 `
+  -RtuPort COMx `
+  -UsbPort COM10 `
+  -DeviceId 1
+```
+
+Ohne USB-RS485-Adapter ist nur der Skript-/CRC-Selbsttest moeglich:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test_modbus_rtu_acceptance.ps1
+```
+
 ## Harte Testmatrix
 
 1. **Boot und Homing**
@@ -133,10 +149,10 @@ UF2-Artefakt, SHA256, Service-Textdiagnose und Modbus-Diagnoseregister. Mit
      Diagnose sichtbar, nicht als falsche gueltige Responses.
 
 9. **Release-Diagnose und Konfigurationsregister**
-   - Master liest Register `0..27`, danach `17..22` und optional `23..27`.
+   - Master liest Register `0..35`, danach `17..22` und optional `23..35`.
    - Erwartung: gueltige CRC-Frames, read-only Diagnosebereich, Schreibversuche
-     auf `17..22` liefern Illegal-Address-Exceptions; Grad- und
-     StallGuard-Register bleiben innerhalb ihrer Wertebereiche.
+     auf `17..22` liefern Illegal-Address-Exceptions; Grad-, StallGuard-,
+     Homing- und Motor-Register bleiben innerhalb ihrer Wertebereiche.
 
 ## Offline-Analyse
 

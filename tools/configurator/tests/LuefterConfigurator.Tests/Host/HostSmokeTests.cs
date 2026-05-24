@@ -41,4 +41,27 @@ public sealed class HostSmokeTests
         Assert.Contains("CreateNoWindow = true", form, StringComparison.Ordinal);
         Assert.Contains("EnsureCoreWebView2Async", form, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void DesktopLauncherClosesWindowWhenItsHostProcessExits()
+    {
+        var formPath = Path.Combine("..", "..", "..", "..", "..", "src", "LuefterConfigurator.Desktop", "MainForm.cs");
+        var form = File.ReadAllText(formPath);
+
+        Assert.Contains("EnableRaisingEvents = true", form, StringComparison.Ordinal);
+        Assert.Contains("Exited +=", form, StringComparison.Ordinal);
+        Assert.Contains("Close();", form, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HostShutdownClosesSerialAndUsesGracefulApplicationStop()
+    {
+        var path = Path.Combine("..", "..", "..", "..", "..", "src", "LuefterConfigurator.Host", "Program.cs");
+        var source = File.ReadAllText(path);
+
+        Assert.Contains("CloseActiveConnections()", source, StringComparison.Ordinal);
+        Assert.Contains("OnCompleted", source, StringComparison.Ordinal);
+        Assert.Contains("StopApplication()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Environment.Exit", source, StringComparison.Ordinal);
+    }
 }

@@ -115,7 +115,31 @@ public sealed class MainForm : Form
 
         hostProcess = Process.Start(startInfo)
             ?? throw new InvalidOperationException("LuefterConfigurator.Host.exe konnte nicht gestartet werden.");
+        hostProcess.EnableRaisingEvents = true;
+        hostProcess.Exited += HostProcessExited;
         startedHost = true;
+    }
+
+    private void HostProcessExited(object? sender, EventArgs e)
+    {
+        if (IsDisposed || !IsHandleCreated)
+        {
+            return;
+        }
+
+        try
+        {
+            BeginInvoke(() =>
+            {
+                if (!IsDisposed)
+                {
+                    Close();
+                }
+            });
+        }
+        catch (InvalidOperationException)
+        {
+        }
     }
 
     private static async Task<bool> WaitForHostAsync()

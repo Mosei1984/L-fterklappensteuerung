@@ -1,6 +1,7 @@
 (() => {
   const statusPill = document.querySelector("[data-status-pill]");
   const toast = document.querySelector("[data-toast]");
+  const shutdownDialog = document.querySelector("[data-shutdown-dialog]");
   const consoleEl = document.querySelector("[data-console]");
   const lastEvent = document.querySelector("[data-last-event]");
   const deviceList = document.querySelector("[data-device-list]");
@@ -14,6 +15,14 @@
   const softMinDegree = document.querySelector("[data-soft-min-degree]");
   const softMaxDegree = document.querySelector("[data-soft-max-degree]");
   const stallGuardThreshold = document.querySelector("[data-stallguard-threshold]");
+  const normalSpeed = document.querySelector("[data-normal-speed]");
+  const homingSpeed = document.querySelector("[data-homing-speed]");
+  const runCurrentMa = document.querySelector("[data-run-current-ma]");
+  const homeMinSwitch = document.querySelector("[data-home-min-switch]");
+  const homeMaxSwitch = document.querySelector("[data-home-max-switch]");
+  const homeMinDirection = document.querySelector("[data-home-min-direction]");
+  const homeMaxDirection = document.querySelector("[data-home-max-direction]");
+  const stepperDirectionInverted = document.querySelector("[data-stepper-direction-inverted]");
   const safeOutput = document.querySelector("[data-safe-output]");
   const safeChip = document.querySelector("[data-safe-chip]");
   const valveSimulation = document.querySelector(".valve-simulation");
@@ -43,7 +52,15 @@
     {"key":"safe.position","displayName":"Sichere Stellung","minimum":0,"maximum":1000,"unit":"promille"},
     {"key":"soft.min.degree","displayName":"Min Winkel","minimum":0,"maximum":90,"unit":"degree"},
     {"key":"soft.max.degree","displayName":"Max Winkel","minimum":0,"maximum":90,"unit":"degree"},
-    {"key":"stallguard.threshold","displayName":"StallGuard Threshold","minimum":0,"maximum":255,"unit":"sgthrs"}
+    {"key":"stallguard.threshold","displayName":"StallGuard Threshold","minimum":0,"maximum":255,"unit":"sgthrs"},
+    {"key":"motor.normal.speed","displayName":"Normalfahrt Speed","minimum":20,"maximum":5000,"unit":"steps/s"},
+    {"key":"motor.homing.speed","displayName":"Homing Speed","minimum":20,"maximum":5000,"unit":"steps/s"},
+    {"key":"motor.run.current.ma","displayName":"Motorstrom","minimum":100,"maximum":1000,"unit":"mA"},
+    {"key":"home.min.switch","displayName":"Home Min Switch","minimum":0,"maximum":1,"unit":"0=min 1=max"},
+    {"key":"home.max.switch","displayName":"Home Max Switch","minimum":0,"maximum":1,"unit":"0=min 1=max"},
+    {"key":"home.min.direction","displayName":"Home Min Richtung","minimum":0,"maximum":1,"unit":"0=- 1=+"},
+    {"key":"home.max.direction","displayName":"Home Max Richtung","minimum":0,"maximum":1,"unit":"0=- 1=+"},
+    {"key":"stepper.direction.inverted","displayName":"Stepper Richtung invertiert","minimum":0,"maximum":1,"unit":"bool"}
   ],
   "registers": [
     {"kind":"Holding","address":0,"name":"command","valueType":"UInt16","access":"ReadWrite"},
@@ -54,7 +71,15 @@
     {"kind":"Holding","address":24,"name":"current_degree","valueType":"UInt16","access":"ReadOnly"},
     {"kind":"Holding","address":25,"name":"soft_min_degree","valueType":"UInt16","access":"ReadWrite"},
     {"kind":"Holding","address":26,"name":"soft_max_degree","valueType":"UInt16","access":"ReadWrite"},
-    {"kind":"Holding","address":27,"name":"stallguard_threshold","valueType":"UInt16","access":"ReadWrite"}
+    {"kind":"Holding","address":27,"name":"stallguard_threshold","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":28,"name":"home_min_switch","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":29,"name":"home_max_switch","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":30,"name":"home_min_direction","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":31,"name":"home_max_direction","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":32,"name":"stepper_direction_inverted","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":33,"name":"normal_max_speed_steps_per_second","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":34,"name":"homing_max_speed_steps_per_second","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":35,"name":"run_current_milliamps","valueType":"UInt16","access":"ReadWrite"}
   ]
 }`;
 
@@ -257,6 +282,14 @@
     const minDegree = snapshot.softMinDegree ?? 0;
     const maxDegree = snapshot.softMaxDegree ?? 90;
     const stallGuard = snapshot.stallGuardThreshold ?? 100;
+    const normalSpeedValue = snapshot.normalMaxSpeedStepsPerSecond ?? 400;
+    const homingSpeedValue = snapshot.homingMaxSpeedStepsPerSecond ?? 200;
+    const runCurrentValue = snapshot.runCurrentMilliamps ?? 1000;
+    const minSwitch = snapshot.homeMinSwitch ?? 0;
+    const maxSwitch = snapshot.homeMaxSwitch ?? 1;
+    const minDirection = snapshot.homeMinDirection ?? 0;
+    const maxDirection = snapshot.homeMaxDirection ?? 1;
+    const directionInverted = Boolean(snapshot.stepperDirectionInverted);
     const isOnline = controllers.some((controller) => controller.isOnline);
 
     setStatus(isOnline);
@@ -288,6 +321,30 @@
     }
     if (stallGuardThreshold) {
       stallGuardThreshold.value = String(stallGuard);
+    }
+    if (normalSpeed) {
+      normalSpeed.value = String(normalSpeedValue);
+    }
+    if (homingSpeed) {
+      homingSpeed.value = String(homingSpeedValue);
+    }
+    if (runCurrentMa) {
+      runCurrentMa.value = String(runCurrentValue);
+    }
+    if (homeMinSwitch) {
+      homeMinSwitch.value = String(minSwitch);
+    }
+    if (homeMaxSwitch) {
+      homeMaxSwitch.value = String(maxSwitch);
+    }
+    if (homeMinDirection) {
+      homeMinDirection.value = String(minDirection);
+    }
+    if (homeMaxDirection) {
+      homeMaxDirection.value = String(maxDirection);
+    }
+    if (stepperDirectionInverted) {
+      stepperDirectionInverted.checked = directionInverted;
     }
     updateValveSimulation(safePosition, "Sichere Stellung");
     if (controllerId && snapshot.activeDeviceId) {
@@ -381,20 +438,66 @@
     body: body === undefined ? undefined : JSON.stringify(body)
   });
 
+  const writeVisibleConfig = () => requestJson("/api/controllers/config", {
+    method: "PUT",
+    body: JSON.stringify({
+      deviceId: Number(controllerId?.value || 1),
+      safePositionPromille: Number(safeSlider?.value || 250),
+      softMinDegree: Number(softMinDegree?.value || 0),
+      softMaxDegree: Number(softMaxDegree?.value || 90),
+      stallGuardThreshold: Number(stallGuardThreshold?.value || 100),
+      normalMaxSpeedStepsPerSecond: Number(normalSpeed?.value || 400),
+      homingMaxSpeedStepsPerSecond: Number(homingSpeed?.value || 200),
+      runCurrentMilliamps: Number(runCurrentMa?.value || 1000),
+      homeMinSwitch: Number(homeMinSwitch?.value || 0),
+      homeMaxSwitch: Number(homeMaxSwitch?.value || 1),
+      homeMinDirection: Number(homeMinDirection?.value || 0),
+      homeMaxDirection: Number(homeMaxDirection?.value || 1),
+      stepperDirectionInverted: Boolean(stepperDirectionInverted?.checked)
+    })
+  });
+
+  const requestShutdownChoice = () => new Promise((resolve) => {
+    if (!shutdownDialog || typeof shutdownDialog.showModal !== "function") {
+      resolve(window.confirm("Aktuelle Werte vor dem Beenden speichern?") ? "save" : "discard");
+      return;
+    }
+
+    const cleanup = () => {
+      shutdownDialog.removeEventListener("click", onClick);
+      shutdownDialog.removeEventListener("cancel", onCancel);
+    };
+    const close = (choice) => {
+      cleanup();
+      shutdownDialog.close();
+      resolve(choice);
+    };
+    const onClick = (event) => {
+      const choice = event.target.closest("[data-shutdown-choice]")?.getAttribute("data-shutdown-choice");
+      if (choice) {
+        close(choice);
+      }
+    };
+    const onCancel = (event) => {
+      event.preventDefault();
+      close("cancel");
+    };
+
+    shutdownDialog.addEventListener("click", onClick);
+    shutdownDialog.addEventListener("cancel", onCancel);
+    shutdownDialog.showModal();
+  });
+
+  const closeSerialConnections = () => post("/api/app/serial/close");
+
   const actions = {
     scan: () => post("/api/controllers/scan"),
     connect: () => post("/api/controllers/connect"),
     import: () => post("/api/profiles/import", { json: sampleProfile }),
-    "write-config": () => requestJson("/api/controllers/config", {
-      method: "PUT",
-      body: JSON.stringify({
-        deviceId: Number(controllerId?.value || 1),
-        safePositionPromille: Number(safeSlider?.value || 250),
-        softMinDegree: Number(softMinDegree?.value || 0),
-        softMaxDegree: Number(softMaxDegree?.value || 90),
-        stallGuardThreshold: Number(stallGuardThreshold?.value || 100)
-      })
-    }),
+    "write-config": () => {
+      appendLog("MOTORCFG Parameter werden geschrieben.");
+      return writeVisibleConfig();
+    },
     home: () => post("/api/commands/home"),
     open: () => post("/api/commands/open"),
     half: () => post("/api/commands/half"),
@@ -407,7 +510,27 @@
       firmwareFileInput?.click();
       return Promise.resolve();
     },
-    export: () => post("/api/exports")
+    export: () => post("/api/exports"),
+    shutdown: async () => {
+      const choice = await requestShutdownChoice();
+      if (choice === "cancel") {
+        showToast("Beenden nicht ausgefuehrt");
+        return null;
+      }
+
+      if (choice === "save") {
+        appendLog("Konfiguration wird vor dem Beenden gespeichert.");
+        await writeVisibleConfig();
+      }
+
+      appendLog("Serial-Verbindungen werden beendet.");
+      await closeSerialConnections();
+      showToast("Konfigurator wird beendet...");
+      appendLog("Konfigurator wird beendet.");
+      const payload = await post("/api/app/shutdown");
+      window.setTimeout(() => window.close(), 250);
+      return payload;
+    }
   };
 
   const advanceWizard = () => {

@@ -53,6 +53,9 @@ using luefterklappe::EventId;
 using luefterklappe::EventSink;
 using luefterklappe::FanFlapController;
 using luefterklappe::FaultReason;
+using luefterklappe::HomingConfig;
+using luefterklappe::HomingDirection;
+using luefterklappe::HomingSwitch;
 using luefterklappe::InputDebouncer;
 using luefterklappe::ModbusRtuServer;
 using luefterklappe::PersistentSettings;
@@ -439,6 +442,53 @@ class SerialEventSink final : public EventSink {
       case EventId::StallGuardThresholdInvalid:
         output().println(F("Ungueltiger StallGuard Threshold. Erlaubt: 0..255."));
         break;
+      case EventId::HomingConfigReported:
+        output().print(F("HOMECFG "));
+        output().print(event.first);
+        output().print(F(" "));
+        output().print(event.second);
+        output().print(F(" "));
+        output().print(event.third);
+        output().print(F(" "));
+        output().print(event.fourth);
+        output().print(F(" "));
+        output().println(event.fifth);
+        break;
+      case EventId::HomingConfigChanged:
+        output().print(F("HOMECFG gesetzt: "));
+        output().print(event.first);
+        output().print(F(" "));
+        output().print(event.second);
+        output().print(F(" "));
+        output().print(event.third);
+        output().print(F(" "));
+        output().print(event.fourth);
+        output().print(F(" "));
+        output().println(event.fifth);
+        break;
+      case EventId::HomingConfigInvalid:
+        output().println(F("Ungueltige Homing-Konfiguration."));
+        break;
+      case EventId::MotorConfigReported:
+        output().print(F("MOTORCFG "));
+        output().print(event.first);
+        output().print(F(" "));
+        output().print(event.second);
+        output().print(F(" "));
+        output().println(event.third);
+        break;
+      case EventId::MotorConfigChanged:
+        output().print(F("MOTORCFG gesetzt: "));
+        output().print(event.first);
+        output().print(F(" "));
+        output().print(event.second);
+        output().print(F(" "));
+        output().println(event.third);
+        break;
+      case EventId::MotorConfigInvalid:
+        output().println(F(
+            "Ungueltige Motor-Konfiguration. Speed 20..5000, Strom 100..1000 mA."));
+        break;
       case EventId::TmcInitializationStarted:
         output().println(F("Initialisiere TMC2209."));
         break;
@@ -517,7 +567,9 @@ Tmc2209Driver tmcDriver(tmcUartPort, delayPort, eventSink);
 PersistentSettings activeSettings{
     static_cast<std::uint8_t>(kDefaultDeviceId),
     luefterklappe::kDefaultControllerConfig.safePositionPermille,
-    luefterklappe::kDefaultTmc2209Config.stallGuardThreshold};
+    luefterklappe::kDefaultTmc2209Config.stallGuardThreshold,
+    luefterklappe::kDefaultHomingConfig,
+    luefterklappe::kDefaultMotorConfig};
 FlashSettingsStorage settingsStorage;
 PersistentSettingsStore settingsStore(settingsStorage, activeSettings);
 BootReason bootReason = BootReason::Unknown;
@@ -559,6 +611,44 @@ void persistSettingsFromEvent(const Event& event) {
             static_cast<std::uint8_t>(event.first);
 #if LUEFTERKLAPPE_USE_TMC2209_UART
         tmcDriver.setStallGuardThreshold(activeSettings.stallGuardThreshold);
+#endif
+        changed = true;
+      }
+      break;
+    case EventId::HomingConfigChanged:
+      if ((event.first >= 0) && (event.first <= 1) &&
+          (event.second >= 0) && (event.second <= 1) &&
+          (event.third >= 0) && (event.third <= 1) &&
+          (event.fourth >= 0) && (event.fourth <= 1) &&
+          (event.fifth >= 0) && (event.fifth <= 1)) {
+        const HomingConfig homing{
+            event.first == 0 ? HomingSwitch::MinInput
+                             : HomingSwitch::MaxInput,
+            event.second == 0 ? HomingSwitch::MinInput
+                              : HomingSwitch::MaxInput,
+            event.third == 0 ? HomingDirection::Negative
+                             : HomingDirection::Positive,
+            event.fourth == 0 ? HomingDirection::Negative
+                              : HomingDirection::Positive,
+            event.fifth != 0};
+        activeSettings.homing = homing;
+        changed = true;
+      }
+      break;
+    case EventId::MotorConfigChanged:
+      if ((event.first >= luefterklappe::kMinMotorSpeedStepsPerSecond) &&
+          (event.first <= luefterklappe::kMaxMotorSpeedStepsPerSecond) &&
+          (event.second >= luefterklappe::kMinMotorSpeedStepsPerSecond) &&
+          (event.second <= luefterklappe::kMaxMotorSpeedStepsPerSecond) &&
+          (event.third >= luefterklappe::kMinRunCurrentMilliamps) &&
+          (event.third <= luefterklappe::kMaxRunCurrentMilliamps)) {
+        const luefterklappe::MotorConfig motor{
+            static_cast<std::uint16_t>(event.first),
+            static_cast<std::uint16_t>(event.second),
+            static_cast<std::uint16_t>(event.third)};
+        activeSettings.motor = motor;
+#if LUEFTERKLAPPE_USE_TMC2209_UART
+        tmcDriver.setRunCurrentMilliamps(activeSettings.motor.runCurrentMilliamps);
 #endif
         changed = true;
       }
@@ -810,6 +900,7 @@ void handleCompletedUsbCommand() {
     } else if (usbCommandEquals("TMCREINIT")) {
       tmcDriver.initialize();
       tmcDriver.setStallGuardThreshold(activeSettings.stallGuardThreshold);
+      tmcDriver.setRunCurrentMilliamps(activeSettings.motor.runCurrentMilliamps);
       Serial.println(F("TMCREINIT beendet."));
 #endif
     } else if (usbCommandEquals("PINWALK")) {
@@ -1102,10 +1193,13 @@ void setup() {
       controller.setSafePositionPermille(activeSettings.safePositionPermille));
   static_cast<void>(
       controller.setStallGuardThreshold(activeSettings.stallGuardThreshold));
+  static_cast<void>(controller.setHomingConfig(activeSettings.homing));
+  static_cast<void>(controller.setMotorConfig(activeSettings.motor));
   settingsPersistenceEnabled = true;
 #if LUEFTERKLAPPE_USE_TMC2209_UART
   tmcDriver.initialize();
   tmcDriver.setStallGuardThreshold(activeSettings.stallGuardThreshold);
+  tmcDriver.setRunCurrentMilliamps(activeSettings.motor.runCurrentMilliamps);
 #endif
   controller.begin();
 }

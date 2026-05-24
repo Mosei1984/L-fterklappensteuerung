@@ -5,7 +5,7 @@ using LuefterConfigurator.Application;
 
 namespace LuefterConfigurator.Infrastructure.Serial;
 
-public sealed class SystemSerialControllerDiscovery : IControllerDiscovery
+public sealed class SystemSerialControllerDiscovery(SystemSerialConnectionCloser connectionCloser) : IControllerDiscovery
 {
     private const int BaudRate = 115200;
     private static readonly TimeSpan ProbeBootDelay = TimeSpan.FromMilliseconds(1_800);
@@ -14,7 +14,7 @@ public sealed class SystemSerialControllerDiscovery : IControllerDiscovery
     public async Task<IReadOnlyList<DiscoveredController>> ScanAsync(CancellationToken cancellationToken)
         => await Task.Run(() => ScanPorts(cancellationToken), cancellationToken);
 
-    private static List<DiscoveredController> ScanPorts(CancellationToken cancellationToken)
+    private List<DiscoveredController> ScanPorts(CancellationToken cancellationToken)
     {
         var controllers = new List<DiscoveredController>();
 
@@ -32,7 +32,7 @@ public sealed class SystemSerialControllerDiscovery : IControllerDiscovery
         return controllers;
     }
 
-    private static DiscoveredController? TryProbePort(string portName, CancellationToken cancellationToken)
+    private DiscoveredController? TryProbePort(string portName, CancellationToken cancellationToken)
     {
         try
         {
@@ -45,6 +45,7 @@ public sealed class SystemSerialControllerDiscovery : IControllerDiscovery
                 WriteTimeout = 300
             };
 
+            using var lease = connectionCloser.Track(serialPort);
             serialPort.Open();
             Thread.Sleep(ProbeBootDelay);
             cancellationToken.ThrowIfCancellationRequested();
@@ -59,12 +60,25 @@ public sealed class SystemSerialControllerDiscovery : IControllerDiscovery
 
             var safeLine = QueryLine(serialPort, "SAFE?", cancellationToken);
             var safePosition = ParseFirstInt(safeLine);
+            var homingLine = QueryLine(serialPort, "HOMECFG?", cancellationToken);
+            var homingValues = ParseInts(homingLine, 5);
+            var stepperDirectionInverted = HomingValueOrNull(homingValues, 4);
+            var motorLine = QueryLine(serialPort, "MOTORCFG?", cancellationToken);
+            var motorValues = ParseInts(motorLine, 3);
             return new DiscoveredController(
                 deviceId.Value,
                 $"USB Serial {portName}",
                 "pico-live",
                 safePosition is >= 0 and <= 1000 ? safePosition : null,
-                portName);
+                portName,
+                HomingValueOrNull(homingValues, 0),
+                HomingValueOrNull(homingValues, 1),
+                HomingValueOrNull(homingValues, 2),
+                HomingValueOrNull(homingValues, 3),
+                stepperDirectionInverted.HasValue ? stepperDirectionInverted.Value == 1 : null,
+                MotorValueOrNull(motorValues, 0, 20, 5000),
+                MotorValueOrNull(motorValues, 1, 20, 5000),
+                MotorValueOrNull(motorValues, 2, 100, 1000));
         }
         catch (Exception exception) when (IsRecoverableSerialError(exception))
         {
@@ -104,6 +118,31 @@ public sealed class SystemSerialControllerDiscovery : IControllerDiscovery
             ? parsed
             : null;
     }
+
+    private static List<int> ParseInts(string value, int expectedCount)
+    {
+        var values = new List<int>(expectedCount);
+        foreach (Match match in Regex.Matches(value, @"-?\d+"))
+        {
+            if (int.TryParse(match.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            {
+                values.Add(parsed);
+            }
+
+            if (values.Count == expectedCount)
+            {
+                break;
+            }
+        }
+
+        return values;
+    }
+
+    private static int? HomingValueOrNull(IReadOnlyList<int> values, int index)
+        => values.Count > index && values[index] is >= 0 and <= 1 ? values[index] : null;
+
+    private static int? MotorValueOrNull(IReadOnlyList<int> values, int index, int minimum, int maximum)
+        => values.Count > index && values[index] >= minimum && values[index] <= maximum ? values[index] : null;
 
     private static bool IsRecoverableSerialError(Exception exception)
         => exception is IOException

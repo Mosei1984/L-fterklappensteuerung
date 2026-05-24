@@ -30,6 +30,9 @@ public sealed class HostApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(0, state.SoftMinDegree);
         Assert.Equal(90, state.SoftMaxDegree);
         Assert.Equal(100, state.StallGuardThreshold);
+        Assert.Equal(400, state.NormalMaxSpeedStepsPerSecond);
+        Assert.Equal(200, state.HomingMaxSpeedStepsPerSecond);
+        Assert.Equal(1000, state.RunCurrentMilliamps);
         Assert.Empty(state.Controllers);
     }
 
@@ -39,7 +42,17 @@ public sealed class HostApiTests : IClassFixture<WebApplicationFactory<Program>>
         using var client = factory.CreateClient();
 
         var scan = await PostAsync(client, "/api/controllers/scan");
-        var config = await client.PutAsJsonAsync("/api/controllers/config", new ConfiguratorWriteConfigRequest(13, 640, 10, 80, 64));
+        var config = await client.PutAsJsonAsync(
+            "/api/controllers/config",
+            new ConfiguratorWriteConfigRequest(
+                13,
+                640,
+                10,
+                80,
+                64,
+                NormalMaxSpeedStepsPerSecond: 900,
+                HomingMaxSpeedStepsPerSecond: 150,
+                RunCurrentMilliamps: 850));
         var configured = await config.Content.ReadFromJsonAsync<ConfiguratorOperationResult>();
         var safe = await PostAsync(client, "/api/commands/safe");
         var refresh = await PostAsync(client, "/api/commands/refresh-machine");
@@ -55,10 +68,14 @@ public sealed class HostApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(10, configured.Snapshot.SoftMinDegree);
         Assert.Equal(80, configured.Snapshot.SoftMaxDegree);
         Assert.Equal(64, configured.Snapshot.StallGuardThreshold);
+        Assert.Equal(900, configured.Snapshot.NormalMaxSpeedStepsPerSecond);
+        Assert.Equal(150, configured.Snapshot.HomingMaxSpeedStepsPerSecond);
+        Assert.Equal(850, configured.Snapshot.RunCurrentMilliamps);
         Assert.Contains(configured.Snapshot.Log, line => line.Contains("ID 13", StringComparison.Ordinal));
         Assert.Contains(configured.Snapshot.Log, line => line.Contains("SAFE 640", StringComparison.Ordinal));
         Assert.Contains(configured.Snapshot.Log, line => line.Contains("SOFTMIN_DEG 10", StringComparison.Ordinal));
         Assert.Contains(configured.Snapshot.Log, line => line.Contains("STALLGUARD 64", StringComparison.Ordinal));
+        Assert.Contains(configured.Snapshot.Log, line => line.Contains("MOTORCFG 900 150 850", StringComparison.Ordinal));
         Assert.True(safe.Success);
         Assert.DoesNotContain(safe.Snapshot.Log, line => line.Contains("GOTO", StringComparison.OrdinalIgnoreCase));
         Assert.True(refresh.Success);
@@ -221,6 +238,32 @@ public sealed class HostApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.NotNull(result);
         Assert.False(result.Success);
         Assert.Contains("UF2", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ShutdownEndpointReturnsVisibleShutdownMessage()
+    {
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/app/shutdown", null);
+        var payload = await response.Content.ReadFromJsonAsync<JsonDocument>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(payload);
+        Assert.Equal("Konfigurator wird beendet.", payload.RootElement.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task SerialCloseEndpointReturnsVisibleCloseMessage()
+    {
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsync("/api/app/serial/close", null);
+        var payload = await response.Content.ReadFromJsonAsync<JsonDocument>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(payload);
+        Assert.Equal("Serial-Verbindungen beendet.", payload.RootElement.GetProperty("message").GetString());
     }
 
     private static async Task<ConfiguratorOperationResult> PostAsync(HttpClient client, string route)

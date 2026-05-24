@@ -49,7 +49,7 @@ public sealed class ConfiguratorServiceTests
     }
 
     [Fact]
-    public async Task WriteConfigRejectsInvalidDeviceIdSafePositionAnglesAndStallGuard()
+    public async Task WriteConfigRejectsInvalidDeviceIdSafePositionAnglesStallGuardAndMotorConfig()
     {
         var service = new ConfiguratorService();
 
@@ -57,6 +57,8 @@ public sealed class ConfiguratorServiceTests
         var badSafe = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 1001), CancellationToken.None);
         var badAngles = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 250, 80, 10), CancellationToken.None);
         var badStallGuard = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 250, 0, 90, 256), CancellationToken.None);
+        var badSpeed = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 250, NormalMaxSpeedStepsPerSecond: 0), CancellationToken.None);
+        var badCurrent = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 250, RunCurrentMilliamps: 1200), CancellationToken.None);
 
         Assert.False(badId.Success);
         Assert.Contains("ID", badId.Error, StringComparison.OrdinalIgnoreCase);
@@ -66,6 +68,10 @@ public sealed class ConfiguratorServiceTests
         Assert.Contains("Grad", badAngles.Error, StringComparison.OrdinalIgnoreCase);
         Assert.False(badStallGuard.Success);
         Assert.Contains("StallGuard", badStallGuard.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(badSpeed.Success);
+        Assert.Contains("Geschwindigkeit", badSpeed.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(badCurrent.Success);
+        Assert.Contains("Motorstrom", badCurrent.Error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -74,7 +80,17 @@ public sealed class ConfiguratorServiceTests
         var service = new ConfiguratorService();
         await service.ScanAsync(CancellationToken.None);
 
-        var result = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(12, 640, 10, 80, 64), CancellationToken.None);
+        var result = await service.WriteConfigAsync(
+            new ConfiguratorWriteConfigRequest(
+                12,
+                640,
+                10,
+                80,
+                64,
+                NormalMaxSpeedStepsPerSecond: 900,
+                HomingMaxSpeedStepsPerSecond: 150,
+                RunCurrentMilliamps: 850),
+            CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal(12, result.Snapshot.ActiveDeviceId);
@@ -82,11 +98,16 @@ public sealed class ConfiguratorServiceTests
         Assert.Equal(10, result.Snapshot.SoftMinDegree);
         Assert.Equal(80, result.Snapshot.SoftMaxDegree);
         Assert.Equal(64, result.Snapshot.StallGuardThreshold);
+        Assert.Equal(900, result.Snapshot.NormalMaxSpeedStepsPerSecond);
+        Assert.Equal(150, result.Snapshot.HomingMaxSpeedStepsPerSecond);
+        Assert.Equal(850, result.Snapshot.RunCurrentMilliamps);
         Assert.Contains(result.Snapshot.Log, line => line.Contains("ID 12", StringComparison.Ordinal));
         Assert.Contains(result.Snapshot.Log, line => line.Contains("SAFE 640", StringComparison.Ordinal));
         Assert.Contains(result.Snapshot.Log, line => line.Contains("SOFTMIN_DEG 10", StringComparison.Ordinal));
         Assert.Contains(result.Snapshot.Log, line => line.Contains("SOFTMAX_DEG 80", StringComparison.Ordinal));
         Assert.Contains(result.Snapshot.Log, line => line.Contains("STALLGUARD 64", StringComparison.Ordinal));
+        Assert.Contains(result.Snapshot.Log, line => line.Contains("MOTORCFG 900 150 850", StringComparison.Ordinal));
+        Assert.Contains(result.Snapshot.Log, line => line.Contains("HOMECFG 0 1 0 1 0", StringComparison.Ordinal));
         Assert.DoesNotContain(result.Snapshot.Log, line => line.Contains(';', StringComparison.Ordinal));
     }
 
@@ -101,14 +122,66 @@ public sealed class ConfiguratorServiceTests
             commandClient: commandClient);
         await service.ScanAsync(CancellationToken.None);
 
-        var result = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(12, 640, 10, 80, 64), CancellationToken.None);
+        var result = await service.WriteConfigAsync(
+            new ConfiguratorWriteConfigRequest(
+                12,
+                640,
+                10,
+                80,
+                64,
+                NormalMaxSpeedStepsPerSecond: 900,
+                HomingMaxSpeedStepsPerSecond: 150,
+                RunCurrentMilliamps: 850),
+            CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal(
-            ["ID 12", "SAFE 640", "STALLGUARD 64", "SOFTMIN_DEG 10", "SOFTMAX_DEG 80"],
+            ["ID 12", "SAFE 640", "STALLGUARD 64", "MOTORCFG 900 150 850", "HOMECFG 0 1 0 1 0", "SOFTMIN_DEG 10", "SOFTMAX_DEG 80"],
             commandClient.Sent.Select(command => command.Command));
         Assert.All(commandClient.Sent, command => Assert.Equal("COM10", command.PortName));
         Assert.Contains(result.Snapshot.Log, line => line.Contains("< ACK STALLGUARD 64", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task WriteConfigSendsHomingConfigThroughUsb()
+    {
+        var commandClient = new FakeCommandClient();
+        var service = new ConfiguratorService(
+            new FakeDiscovery([
+                new DiscoveredController(23, "USB Serial COM10", "pico-live", 875, "COM10")
+            ]),
+            commandClient: commandClient);
+        await service.ScanAsync(CancellationToken.None);
+
+        var result = await service.WriteConfigAsync(
+            new ConfiguratorWriteConfigRequest(12, 640, 10, 80, 64, 1, 0, 1, 0, true),
+            CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(1, result.Snapshot.HomeMinSwitch);
+        Assert.Equal(0, result.Snapshot.HomeMaxSwitch);
+        Assert.Equal(1, result.Snapshot.HomeMinDirection);
+        Assert.Equal(0, result.Snapshot.HomeMaxDirection);
+        Assert.True(result.Snapshot.StepperDirectionInverted);
+        Assert.Contains(commandClient.Sent, command => command.Command == "HOMECFG 1 0 1 0 1");
+    }
+
+    [Fact]
+    public async Task WriteConfigRejectsInvalidHomingConfig()
+    {
+        var service = new ConfiguratorService();
+
+        var sameSwitch = await service.WriteConfigAsync(
+            new ConfiguratorWriteConfigRequest(1, 250, 0, 90, 100, 0, 0, 0, 1, false),
+            CancellationToken.None);
+        var badDirection = await service.WriteConfigAsync(
+            new ConfiguratorWriteConfigRequest(1, 250, 0, 90, 100, 0, 1, 2, 1, false),
+            CancellationToken.None);
+
+        Assert.False(sameSwitch.Success);
+        Assert.Contains("Homing", sameSwitch.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(badDirection.Success);
+        Assert.Contains("Homing", badDirection.Error, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -16,6 +16,14 @@ public sealed record ConfiguratorSnapshot(
     int SoftMinDegree,
     int SoftMaxDegree,
     int StallGuardThreshold,
+    int NormalMaxSpeedStepsPerSecond,
+    int HomingMaxSpeedStepsPerSecond,
+    int RunCurrentMilliamps,
+    int HomeMinSwitch,
+    int HomeMaxSwitch,
+    int HomeMinDirection,
+    int HomeMaxDirection,
+    bool StepperDirectionInverted,
     bool GatewayRunning,
     string LastEvent,
     IReadOnlyList<string> Log,
@@ -35,7 +43,15 @@ public sealed record ConfiguratorWriteConfigRequest(
     int SafePositionPromille,
     int SoftMinDegree = 0,
     int SoftMaxDegree = 90,
-    int StallGuardThreshold = 100);
+    int StallGuardThreshold = 100,
+    int HomeMinSwitch = 0,
+    int HomeMaxSwitch = 1,
+    int HomeMinDirection = 0,
+    int HomeMaxDirection = 1,
+    bool StepperDirectionInverted = false,
+    int NormalMaxSpeedStepsPerSecond = 400,
+    int HomingMaxSpeedStepsPerSecond = 200,
+    int RunCurrentMilliamps = 1000);
 
 public sealed record ConfiguratorProfileImportRequest(string Json);
 
@@ -68,6 +84,18 @@ public sealed record FirmwareFlashResult(string DriveRoot, string FileName, long
 public interface IFirmwareFlasher
 {
     Task<FirmwareFlashResult> FlashAsync(string fileName, Stream content, CancellationToken cancellationToken);
+}
+
+public interface IControllerConnectionCloser
+{
+    void CloseActiveConnections();
+}
+
+public sealed class NoopControllerConnectionCloser : IControllerConnectionCloser
+{
+    public void CloseActiveConnections()
+    {
+    }
 }
 
 public sealed class UnavailableFirmwareFlasher : IFirmwareFlasher
@@ -173,7 +201,15 @@ public sealed record DiscoveredController(
     string TransportName,
     string FirmwareVersion,
     int? SafePositionPromille = null,
-    string? CommandPortName = null);
+    string? CommandPortName = null,
+    int? HomeMinSwitch = null,
+    int? HomeMaxSwitch = null,
+    int? HomeMinDirection = null,
+    int? HomeMaxDirection = null,
+    bool? StepperDirectionInverted = null,
+    int? NormalMaxSpeedStepsPerSecond = null,
+    int? HomingMaxSpeedStepsPerSecond = null,
+    int? RunCurrentMilliamps = null);
 
 public interface IControllerDiscovery
 {

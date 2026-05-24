@@ -25,6 +25,14 @@ public sealed class ConfiguratorService(
     private int softMinDegree;
     private int softMaxDegree = 90;
     private int stallGuardThreshold = 100;
+    private int normalMaxSpeedStepsPerSecond = 400;
+    private int homingMaxSpeedStepsPerSecond = 200;
+    private int runCurrentMilliamps = 1000;
+    private int homeMinSwitch;
+    private int homeMaxSwitch = 1;
+    private int homeMinDirection;
+    private int homeMaxDirection = 1;
+    private bool stepperDirectionInverted;
     private bool gatewayRunning;
     private string lastEvent = "Warte auf Aktion";
     private string activeProfileId = "fanflap";
@@ -71,6 +79,33 @@ public sealed class ConfiguratorService(
             if (activeController.SafePositionPromille.HasValue)
             {
                 safePositionPromille = activeController.SafePositionPromille.Value;
+            }
+
+            if (activeController.HomeMinSwitch.HasValue &&
+                activeController.HomeMaxSwitch.HasValue &&
+                activeController.HomeMinDirection.HasValue &&
+                activeController.HomeMaxDirection.HasValue &&
+                activeController.StepperDirectionInverted.HasValue &&
+                HomingConfigIsValid(
+                    activeController.HomeMinSwitch.Value,
+                    activeController.HomeMaxSwitch.Value,
+                    activeController.HomeMinDirection.Value,
+                    activeController.HomeMaxDirection.Value))
+            {
+                homeMinSwitch = activeController.HomeMinSwitch.Value;
+                homeMaxSwitch = activeController.HomeMaxSwitch.Value;
+                homeMinDirection = activeController.HomeMinDirection.Value;
+                homeMaxDirection = activeController.HomeMaxDirection.Value;
+                stepperDirectionInverted = activeController.StepperDirectionInverted.Value;
+            }
+
+            if (activeController.NormalMaxSpeedStepsPerSecond is >= 20 and <= 5000 &&
+                activeController.HomingMaxSpeedStepsPerSecond is >= 20 and <= 5000 &&
+                activeController.RunCurrentMilliamps is >= 100 and <= 1000)
+            {
+                normalMaxSpeedStepsPerSecond = activeController.NormalMaxSpeedStepsPerSecond.Value;
+                homingMaxSpeedStepsPerSecond = activeController.HomingMaxSpeedStepsPerSecond.Value;
+                runCurrentMilliamps = activeController.RunCurrentMilliamps.Value;
             }
 
             lastEvent = "Controller erkannt";
@@ -123,12 +158,30 @@ public sealed class ConfiguratorService(
                 return FailureLocked("Ungueltige StallGuard Schwelle", "StallGuard muss im Bereich 0..255 liegen.");
             }
 
+            if (request.NormalMaxSpeedStepsPerSecond is < 20 or > 5000 ||
+                request.HomingMaxSpeedStepsPerSecond is < 20 or > 5000)
+            {
+                return FailureLocked("Ungueltige Geschwindigkeit", "Geschwindigkeit muss im Bereich 20..5000 Steps/s liegen.");
+            }
+
+            if (request.RunCurrentMilliamps is < 100 or > 1000)
+            {
+                return FailureLocked("Ungueltiger Motorstrom", "Motorstrom muss im Bereich 100..1000 mA liegen.");
+            }
+
+            if (!HomingConfigIsValid(request.HomeMinSwitch, request.HomeMaxSwitch, request.HomeMinDirection, request.HomeMaxDirection))
+            {
+                return FailureLocked("Ungueltige Homing-Konfiguration", "Homing Switches und Richtungen muessen 0 oder 1 sein; Min/Max duerfen nicht identisch sein.");
+            }
+
             portName = activeCommandPortName;
             commands =
             [
                 $"ID {request.DeviceId.ToString(CultureInfo.InvariantCulture)}",
                 $"SAFE {request.SafePositionPromille.ToString(CultureInfo.InvariantCulture)}",
                 $"STALLGUARD {request.StallGuardThreshold.ToString(CultureInfo.InvariantCulture)}",
+                $"MOTORCFG {request.NormalMaxSpeedStepsPerSecond.ToString(CultureInfo.InvariantCulture)} {request.HomingMaxSpeedStepsPerSecond.ToString(CultureInfo.InvariantCulture)} {request.RunCurrentMilliamps.ToString(CultureInfo.InvariantCulture)}",
+                $"HOMECFG {request.HomeMinSwitch.ToString(CultureInfo.InvariantCulture)} {request.HomeMaxSwitch.ToString(CultureInfo.InvariantCulture)} {request.HomeMinDirection.ToString(CultureInfo.InvariantCulture)} {request.HomeMaxDirection.ToString(CultureInfo.InvariantCulture)} {(request.StepperDirectionInverted ? "1" : "0")}",
                 $"SOFTMIN_DEG {request.SoftMinDegree.ToString(CultureInfo.InvariantCulture)}",
                 $"SOFTMAX_DEG {request.SoftMaxDegree.ToString(CultureInfo.InvariantCulture)}"
             ];
@@ -163,6 +216,20 @@ public sealed class ConfiguratorService(
             activeCommandPortName = portName;
             safePositionPromille = request.SafePositionPromille;
             stallGuardThreshold = request.StallGuardThreshold;
+            if (!CommandWasRejected(commandResults, "MOTORCFG"))
+            {
+                normalMaxSpeedStepsPerSecond = request.NormalMaxSpeedStepsPerSecond;
+                homingMaxSpeedStepsPerSecond = request.HomingMaxSpeedStepsPerSecond;
+                runCurrentMilliamps = request.RunCurrentMilliamps;
+            }
+            if (!CommandWasRejected(commandResults, "HOMECFG"))
+            {
+                homeMinSwitch = request.HomeMinSwitch;
+                homeMaxSwitch = request.HomeMaxSwitch;
+                homeMinDirection = request.HomeMinDirection;
+                homeMaxDirection = request.HomeMaxDirection;
+                stepperDirectionInverted = request.StepperDirectionInverted;
+            }
             var softLimitRejected =
                 CommandWasRejected(commandResults, "SOFTMIN_DEG") ||
                 CommandWasRejected(commandResults, "SOFTMAX_DEG");
@@ -461,6 +528,14 @@ public sealed class ConfiguratorService(
             commandResult.Command.StartsWith(commandPrefix, StringComparison.Ordinal) &&
             commandResult.Lines.Any(IsFirmwareRejectionLine));
 
+    private static bool HomingConfigIsValid(int minSwitch, int maxSwitch, int minDirection, int maxDirection)
+        => minSwitch is >= 0 and <= 1 &&
+            maxSwitch is >= 0 and <= 1 &&
+            minDirection is >= 0 and <= 1 &&
+            maxDirection is >= 0 and <= 1 &&
+            minSwitch != maxSwitch &&
+            minDirection != maxDirection;
+
     private static bool IsFirmwareRejectionLine(string line)
     {
         var normalized = line.ToLowerInvariant();
@@ -498,6 +573,14 @@ public sealed class ConfiguratorService(
             softMinDegree,
             softMaxDegree,
             stallGuardThreshold,
+            normalMaxSpeedStepsPerSecond,
+            homingMaxSpeedStepsPerSecond,
+            runCurrentMilliamps,
+            homeMinSwitch,
+            homeMaxSwitch,
+            homeMinDirection,
+            homeMaxDirection,
+            stepperDirectionInverted,
             gatewayRunning,
             lastEvent,
             log.ToArray(),

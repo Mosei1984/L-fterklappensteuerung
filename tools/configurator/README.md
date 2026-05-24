@@ -17,17 +17,16 @@ und Modbus TCP.
 Falls kein globales SDK installiert ist, kann ein lokales SDK verwendet werden:
 
 ```powershell
-$env:DOTNET_ROOT='C:\Users\mosei\.dotnet8'
+$env:DOTNET_ROOT=Join-Path $env:USERPROFILE '.dotnet8'
 $env:DOTNET_CLI_HOME=(Resolve-Path ..\..).Path
-& 'C:\Users\mosei\.dotnet8\dotnet.exe' --info
+& (Join-Path $env:DOTNET_ROOT 'dotnet.exe') --info
 ```
 
 ## Expert-Host Start
 
 ```powershell
-$env:DOTNET_ROOT='C:\Users\mosei\.dotnet8'
 $env:DOTNET_CLI_HOME=(Resolve-Path ..\..).Path
-& 'C:\Users\mosei\.dotnet8\dotnet.exe' run --project .\src\LuefterConfigurator.Host
+dotnet run --project .\src\LuefterConfigurator.Host
 ```
 
 Direktes Oeffnen von <http://127.0.0.1:5184> ist nur fuer Entwicklung,
@@ -104,11 +103,11 @@ Die UI zeigt die Dateien nach `Export testen` direkt als Downloadlinks. Die API 
 Loxone-Hinweise:
 
 - Datei `MB_Luefterklappe_FanFlap_ID<id>.xml` in den Loxone-Config-Template-Ordner `C:\ProgramData\Loxone\Loxone Config <version>\ENG\Comm` kopieren oder ueber die Template-Importfunktion einlesen.
-- Loxone IO-Adressen sind 0-basiert und entsprechen direkt den Firmware-Holding-Registern `0..27`.
+- Loxone IO-Adressen sind 0-basiert und entsprechen direkt den Firmware-Holding-Registern `0..35`.
 - Fuer die Luefterklappe zuerst Register `23` als Analogaktor `0..90` Grad nutzen: `0` ist offen/waagrecht, `90` geschlossen/senkrecht.
 - Optional bleibt Register `14` als Legacy-Analogaktor `0..1000` Promille verfuegbar.
 - Register `8`, `9`, `15`, `16` und `24` als langsam gepollte Status-/Parameterpunkte verwenden.
-- Grad-Limits liegen auf Register `25..26`; die StallGuard-Schwelle liegt auf Register `27`.
+- Grad-Limits liegen auf Register `25..26`; die StallGuard-Schwelle liegt auf Register `27`; Homing-Switches, Homing-Richtungen und Stepper-Richtungsinvertierung liegen auf Register `28..32`; Motor-Speed und TMC2209-Laufstrom liegen auf Register `33..35`.
 - Register `0` mit Wert `5` als `refreshMachine`-Kommando anlegen. Das ist der
   bevorzugte Bedienbefehl nach Blockade, Endschalterfehler oder Safe-State:
   Fehler quittieren und Homing starten, ohne den Pico neu zu resetten.
@@ -197,9 +196,8 @@ Windows Apps & Features wird derselbe interaktive Deinstallationspfad genutzt.
 ## Test
 
 ```powershell
-$env:DOTNET_ROOT='C:\Users\mosei\.dotnet8'
 $env:DOTNET_CLI_HOME=(Resolve-Path ..\..).Path
-& 'C:\Users\mosei\.dotnet8\dotnet.exe' test .\LuefterConfigurator.sln
+dotnet test .\LuefterConfigurator.sln
 ```
 
 Der harte Repo-Gate erzeugt zusaetzlich TRX, Cobertura-Coverage,
@@ -211,7 +209,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ..\..\tools\run_hard_checks.
 
 Aktueller Stand:
 
-- Configurator xUnit: 65 Tests.
+- Configurator xUnit: 77 Tests.
 - Coverage im Hard-Gate: Cobertura XML plus Markdown-Zusammenfassung.
 - Razor-Build: `RazorCompileOnBuild=true` mit Binlog.
 - VS Code: C# Dev Kit/Test Explorer/Razor/LSP-Trace-Einstellungen werden im
@@ -222,7 +220,8 @@ Aktueller Stand:
 Auf Windows sollte PlatformIO mit kurzem Core-Pfad laufen, damit Arduino-Mbed-Pakete nicht an Pfadlaengen scheitern:
 
 ```powershell
-$env:PATH='C:\Users\mosei\AppData\Local\Programs\Python\Python312\Scripts;' + $env:PATH
+$pythonScripts = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\Scripts'
+$env:PATH="$pythonScripts;$env:PATH"
 $env:PLATFORMIO_CORE_DIR='C:\pio-luefter'
 powershell -ExecutionPolicy Bypass -File ..\..\tools\run_quality_checks.ps1
 ```

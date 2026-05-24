@@ -6,6 +6,7 @@
 #include <FanFlapController.h>
 #include <InputDebouncer.h>
 #include <ModbusRtuServer.h>
+#include <MotorConfig.h>
 #include <PersistentSettings.h>
 #include <Tmc2209Driver.h>
 
@@ -23,8 +24,12 @@ using luefterklappe::EventId;
 using luefterklappe::EventSink;
 using luefterklappe::FanFlapController;
 using luefterklappe::FaultReason;
+using luefterklappe::HomingConfig;
+using luefterklappe::HomingDirection;
+using luefterklappe::HomingSwitch;
 using luefterklappe::InputDebouncer;
 using luefterklappe::ModbusRegister;
+using luefterklappe::MotorConfig;
 using luefterklappe::ModbusRtuServer;
 using luefterklappe::PersistentSettings;
 using luefterklappe::PersistentSettingsStore;
@@ -33,6 +38,7 @@ using luefterklappe::StepperPort;
 using luefterklappe::Tmc2209Driver;
 using luefterklappe::Tmc2209PollResult;
 using luefterklappe::UartPort;
+using luefterklappe::kDefaultHomingConfig;
 
 constexpr ControllerConfig kFastTestConfig{1000L, 5UL, 100UL, 400.0F, 200.0F,
                                            1000.0F, 500U, 20L, 2000UL,
@@ -252,8 +258,8 @@ class FakeSettingsStorage final : public SettingsStoragePort {
   }
 
   static constexpr std::size_t kSlotCount = 2U;
-  static constexpr std::size_t kSlotSize = 16U;
-  static constexpr std::size_t kCapacity = 32U;
+  static constexpr std::size_t kSlotSize = 24U;
+  static constexpr std::size_t kCapacity = 48U;
   static constexpr std::size_t kNoSlot = static_cast<std::size_t>(-1);
   std::uint8_t bytes_[kCapacity]{};
   bool readOk_{true};
@@ -432,6 +438,53 @@ void test_persistent_settings_save_and_reload_valid_settings() {
                           loaded.stallGuardThreshold);
 }
 
+void test_persistent_settings_save_and_reload_homing_config() {
+  FakeSettingsStorage storage;
+  PersistentSettingsStore writer(storage);
+  const HomingConfig homing{HomingSwitch::MaxInput, HomingSwitch::MinInput,
+                            HomingDirection::Positive,
+                            HomingDirection::Negative, true};
+  const PersistentSettings saved{42U, 250U, 64U, homing};
+
+  TEST_ASSERT_TRUE(writer.save(saved));
+
+  PersistentSettingsStore reader(storage);
+  const PersistentSettings loaded = reader.load();
+
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingSwitch::MaxInput),
+      static_cast<std::uint8_t>(loaded.homing.minSwitch));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingSwitch::MinInput),
+      static_cast<std::uint8_t>(loaded.homing.maxSwitch));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingDirection::Positive),
+      static_cast<std::uint8_t>(loaded.homing.minDirection));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingDirection::Negative),
+      static_cast<std::uint8_t>(loaded.homing.maxDirection));
+  TEST_ASSERT_TRUE(loaded.homing.stepperDirectionInverted);
+}
+
+void test_persistent_settings_save_and_reload_motor_config() {
+  FakeSettingsStorage storage;
+  PersistentSettingsStore writer(storage);
+  const MotorConfig motor{900U, 150U, 850U};
+  const PersistentSettings saved{42U, 250U, 64U, kDefaultHomingConfig, motor};
+
+  TEST_ASSERT_TRUE(writer.save(saved));
+
+  PersistentSettingsStore reader(storage);
+  const PersistentSettings loaded = reader.load();
+
+  TEST_ASSERT_EQUAL_UINT16(motor.normalMaxSpeedStepsPerSecond,
+                           loaded.motor.normalMaxSpeedStepsPerSecond);
+  TEST_ASSERT_EQUAL_UINT16(motor.homingMaxSpeedStepsPerSecond,
+                           loaded.motor.homingMaxSpeedStepsPerSecond);
+  TEST_ASSERT_EQUAL_UINT16(motor.runCurrentMilliamps,
+                           loaded.motor.runCurrentMilliamps);
+}
+
 void test_persistent_settings_reject_corrupt_or_out_of_range_data() {
   FakeSettingsStorage storage;
   PersistentSettingsStore store(storage);
@@ -449,6 +502,17 @@ void test_persistent_settings_reject_corrupt_or_out_of_range_data() {
   TEST_ASSERT_EQUAL_UINT8(1U, loaded.deviceId);
   TEST_ASSERT_EQUAL_UINT16(1000U, loaded.safePositionPermille);
   TEST_ASSERT_EQUAL_UINT8(100U, loaded.stallGuardThreshold);
+
+  const HomingConfig invalidSameSwitch{
+      HomingSwitch::MinInput, HomingSwitch::MinInput,
+      HomingDirection::Negative, HomingDirection::Positive, false};
+  TEST_ASSERT_FALSE(
+      store.save(PersistentSettings{7U, 750U, 90U, invalidSameSwitch}));
+
+  TEST_ASSERT_FALSE(store.save(PersistentSettings{
+      7U, 750U, 90U, kDefaultHomingConfig, MotorConfig{0U, 200U, 800U}}));
+  TEST_ASSERT_FALSE(store.save(PersistentSettings{
+      7U, 750U, 90U, kDefaultHomingConfig, MotorConfig{400U, 200U, 1200U}}));
 }
 
 void test_persistent_settings_loads_newest_valid_record() {
@@ -470,7 +534,7 @@ void test_persistent_settings_falls_back_to_previous_slot_after_corruption() {
 
   TEST_ASSERT_TRUE(store.save(PersistentSettings{7U, 750U, 88U}));
   TEST_ASSERT_TRUE(store.save(PersistentSettings{8U, 250U, 55U}));
-  storage.corruptByte(16U);
+  storage.corruptByte(FakeSettingsStorage::kSlotSize);
 
   const PersistentSettings loaded = store.load();
   TEST_ASSERT_EQUAL_UINT8(7U, loaded.deviceId);
@@ -532,6 +596,91 @@ void test_homing_sequence_sets_range_and_midpoint() {
   TEST_ASSERT_EQUAL(ControllerState::Ready, controller.state());
   TEST_ASSERT_EQUAL_INT32(400, controller.targetPosition());
   TEST_ASSERT_EQUAL_INT32(400, stepper.target_);
+}
+
+void test_homing_config_defaults_match_existing_wiring() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  const HomingConfig homing = controller.homingConfig();
+
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingSwitch::MinInput),
+      static_cast<std::uint8_t>(homing.minSwitch));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingSwitch::MaxInput),
+      static_cast<std::uint8_t>(homing.maxSwitch));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingDirection::Negative),
+      static_cast<std::uint8_t>(homing.minDirection));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingDirection::Positive),
+      static_cast<std::uint8_t>(homing.maxDirection));
+  TEST_ASSERT_FALSE(homing.stepperDirectionInverted);
+}
+
+void test_homing_config_maps_logical_min_and_max_to_selected_switches() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  const HomingConfig homing{HomingSwitch::MaxInput, HomingSwitch::MinInput,
+                            HomingDirection::Positive,
+                            HomingDirection::Negative, false};
+
+  TEST_ASSERT_TRUE(controller.setHomingConfig(homing));
+
+  controller.begin();
+  controller.tick(kNoInputs, 0U);
+  TEST_ASSERT_EQUAL(ControllerState::HomingMin, controller.state());
+  TEST_ASSERT_EQUAL_INT32(1000, stepper.target_);
+
+  controller.tick(DigitalInputs{false, true, false}, 1U);
+  TEST_ASSERT_EQUAL(ControllerState::HomingMinSettling, controller.state());
+  TEST_ASSERT_EQUAL_INT32(0, controller.currentPosition());
+
+  controller.tick(kNoInputs, 6U);
+  TEST_ASSERT_EQUAL(ControllerState::HomingMax, controller.state());
+  TEST_ASSERT_EQUAL_INT32(-1000, stepper.target_);
+
+  stepper.position_ = -750;
+  controller.tick(DigitalInputs{true, false, false}, 7U);
+  TEST_ASSERT_EQUAL(ControllerState::HomingMaxSettling, controller.state());
+  TEST_ASSERT_EQUAL_INT32(750, controller.maxPosition());
+  TEST_ASSERT_EQUAL_INT32(750, controller.currentPosition());
+
+  controller.tick(kNoInputs, 12U);
+  TEST_ASSERT_EQUAL(ControllerState::Ready, controller.state());
+  TEST_ASSERT_EQUAL_INT32(375, controller.targetPosition());
+  TEST_ASSERT_EQUAL_INT32(-375, stepper.target_);
+}
+
+void test_homing_config_inverts_stepper_direction_without_changing_logic() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  const HomingConfig homing{HomingSwitch::MinInput, HomingSwitch::MaxInput,
+                            HomingDirection::Negative,
+                            HomingDirection::Positive, true};
+
+  TEST_ASSERT_TRUE(controller.setHomingConfig(homing));
+
+  controller.begin();
+  controller.tick(kNoInputs, 0U);
+  TEST_ASSERT_EQUAL_INT32(1000, stepper.target_);
+
+  controller.tick(DigitalInputs{true, false, false}, 1U);
+  controller.tick(kNoInputs, 6U);
+  TEST_ASSERT_EQUAL_INT32(-1000, stepper.target_);
+
+  stepper.position_ = -800;
+  controller.tick(DigitalInputs{false, true, false}, 7U);
+  controller.tick(kNoInputs, 12U);
+  TEST_ASSERT_EQUAL(ControllerState::Ready, controller.state());
+
+  controller.handleCommand("GOTO 400");
+  TEST_ASSERT_EQUAL_INT32(400, controller.targetPosition());
+  TEST_ASSERT_EQUAL_INT32(-400, stepper.target_);
 }
 
 void test_input_debouncer_requires_stable_switch_state() {
@@ -684,6 +833,77 @@ void test_stallguard_threshold_command_validates_and_reports_setting() {
   controller.handleCommand("STALLGUARD 256");
   TEST_ASSERT_EQUAL_UINT8(64U, controller.stallGuardThreshold());
   TEST_ASSERT_TRUE(events.contains(EventId::StallGuardThresholdInvalid));
+}
+
+void test_homing_config_command_validates_reports_and_updates() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  controller.handleCommand("HOMECFG 1 0 1 0 1");
+
+  const HomingConfig homing = controller.homingConfig();
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingSwitch::MaxInput),
+      static_cast<std::uint8_t>(homing.minSwitch));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingSwitch::MinInput),
+      static_cast<std::uint8_t>(homing.maxSwitch));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingDirection::Positive),
+      static_cast<std::uint8_t>(homing.minDirection));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingDirection::Negative),
+      static_cast<std::uint8_t>(homing.maxDirection));
+  TEST_ASSERT_TRUE(homing.stepperDirectionInverted);
+  TEST_ASSERT_TRUE(events.contains(EventId::HomingConfigChanged));
+
+  events.clear();
+  controller.handleCommand("HOMECFG?");
+  TEST_ASSERT_EQUAL(EventId::HomingConfigReported, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(1, events.last().first);
+  TEST_ASSERT_EQUAL_INT32(0, events.last().second);
+  TEST_ASSERT_EQUAL_INT32(1, events.last().third);
+  TEST_ASSERT_EQUAL_INT32(0, events.last().fourth);
+  TEST_ASSERT_EQUAL_INT32(1, events.last().fifth);
+
+  events.clear();
+  controller.handleCommand("HOMECFG 0 0 0 1 0");
+  TEST_ASSERT_TRUE(events.contains(EventId::HomingConfigInvalid));
+  TEST_ASSERT_TRUE(controller.homingConfig().stepperDirectionInverted);
+}
+
+void test_motor_config_command_validates_reports_and_updates() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  controller.begin();
+
+  controller.handleCommand("MOTORCFG?");
+  TEST_ASSERT_TRUE(events.contains(EventId::MotorConfigReported));
+  TEST_ASSERT_EQUAL_INT32(400, events.last().first);
+  TEST_ASSERT_EQUAL_INT32(200, events.last().second);
+  TEST_ASSERT_EQUAL_INT32(1000, events.last().third);
+
+  events.clear();
+  controller.handleCommand("MOTORCFG 900 150 850");
+  TEST_ASSERT_TRUE(events.contains(EventId::MotorConfigChanged));
+  TEST_ASSERT_EQUAL_UINT16(900U,
+                           controller.motorConfig()
+                               .normalMaxSpeedStepsPerSecond);
+  TEST_ASSERT_EQUAL_UINT16(150U,
+                           controller.motorConfig()
+                               .homingMaxSpeedStepsPerSecond);
+  TEST_ASSERT_EQUAL_UINT16(850U, controller.motorConfig().runCurrentMilliamps);
+  TEST_ASSERT_EQUAL_FLOAT(900.0F, stepper.maxSpeed_);
+
+  events.clear();
+  controller.handleCommand("MOTORCFG 0 150 850");
+  TEST_ASSERT_TRUE(events.contains(EventId::MotorConfigInvalid));
+  TEST_ASSERT_EQUAL_UINT16(900U,
+                           controller.motorConfig()
+                               .normalMaxSpeedStepsPerSecond);
 }
 
 void test_homing_uses_stallguard_as_min_endstop_redundancy() {
@@ -1548,14 +1768,14 @@ void test_modbus_read_ignores_broadcast_and_rejects_invalid_ranges() {
   TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
 
   uart.clearWritten();
-  std::uint8_t tooManyRegisters[8]{1U, 0x03U, 0U, 0U, 0U, 29U, 0U, 0U};
+  std::uint8_t tooManyRegisters[8]{1U, 0x03U, 0U, 0U, 0U, 37U, 0U, 0U};
   feedModbusFrame(server, tooManyRegisters, 6U);
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x83U, uart.written_[1]);
   TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
 
   uart.clearWritten();
-  std::uint8_t endOverflow[8]{1U, 0x03U, 0U, 27U, 0U, 2U, 0U, 0U};
+  std::uint8_t endOverflow[8]{1U, 0x03U, 0U, 35U, 0U, 2U, 0U, 0U};
   feedModbusFrame(server, endOverflow, 6U);
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x83U, uart.written_[1]);
@@ -1631,7 +1851,7 @@ void test_modbus_reads_release_diagnostic_registers() {
   TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 7U));
   TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 9U));
   TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 11U));
-  TEST_ASSERT_EQUAL_UINT16(3U, responseUint16(uart, 13U));
+  TEST_ASSERT_EQUAL_UINT16(5U, responseUint16(uart, 13U));
 }
 
 void test_modbus_rejects_writes_to_release_diagnostic_registers() {
@@ -1672,12 +1892,12 @@ void test_modbus_reads_full_release_register_block() {
   FanFlapController controller(stepper, events, kFastTestConfig);
   ModbusRtuServer server(controller, uart);
 
-  std::uint8_t frame[8]{1U, 0x03U, 0U, 0U, 0U, 28U, 0U, 0U};
+  std::uint8_t frame[8]{1U, 0x03U, 0U, 0U, 0U, 36U, 0U, 0U};
   feedModbusFrame(server, frame, 6U);
 
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[1]);
-  TEST_ASSERT_EQUAL_UINT8(56U, uart.written_[2]);
+  TEST_ASSERT_EQUAL_UINT8(72U, uart.written_[2]);
 }
 
 void test_modbus_reads_configured_boot_reason_register() {
@@ -1705,7 +1925,7 @@ void test_modbus_rejects_read_past_release_register_block() {
   FanFlapController controller(stepper, events, kFastTestConfig);
   ModbusRtuServer server(controller, uart);
 
-  std::uint8_t frame[8]{1U, 0x03U, 0U, 27U, 0U, 2U, 0U, 0U};
+  std::uint8_t frame[8]{1U, 0x03U, 0U, 35U, 0U, 2U, 0U, 0U};
   feedModbusFrame(server, frame, 6U);
 
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
@@ -1877,6 +2097,103 @@ void test_modbus_stallguard_threshold_register_validates_and_updates() {
   feedModbusFrame(server, invalidThreshold, 6U);
   TEST_ASSERT_EQUAL_UINT8(64U, controller.stallGuardThreshold());
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x86U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[2]);
+}
+
+void test_modbus_homing_config_registers_validate_and_update() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  bringControllerToReady(controller, stepper, events);
+
+  std::uint8_t readDefaults[8]{1U, 0x03U, 0x00U, 0x1CU, 0x00U, 0x05U, 0U,
+                               0U};
+  feedModbusFrame(server, readDefaults, 6U);
+
+  TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 3U));
+  TEST_ASSERT_EQUAL_UINT16(1U, responseUint16(uart, 5U));
+  TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 7U));
+  TEST_ASSERT_EQUAL_UINT16(1U, responseUint16(uart, 9U));
+  TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 11U));
+
+  uart.clearWritten();
+  std::uint8_t writeConfig[19]{1U, 0x10U, 0x00U, 0x1CU, 0x00U, 0x05U,
+                               0x0AU, 0x00U, 0x01U, 0x00U, 0x00U,
+                               0x00U, 0x01U, 0x00U, 0x00U, 0x00U,
+                               0x01U, 0U, 0U};
+  feedModbusFrame(server, writeConfig, 17U);
+
+  const HomingConfig homing = controller.homingConfig();
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingSwitch::MaxInput),
+      static_cast<std::uint8_t>(homing.minSwitch));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingSwitch::MinInput),
+      static_cast<std::uint8_t>(homing.maxSwitch));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingDirection::Positive),
+      static_cast<std::uint8_t>(homing.minDirection));
+  TEST_ASSERT_EQUAL_UINT8(
+      static_cast<std::uint8_t>(HomingDirection::Negative),
+      static_cast<std::uint8_t>(homing.maxDirection));
+  TEST_ASSERT_TRUE(homing.stepperDirectionInverted);
+
+  uart.clearWritten();
+  std::uint8_t invalidSameSwitch[8]{
+      1U, 0x06U, 0x00U,
+      static_cast<std::uint8_t>(ModbusRegister::HomeMaxSwitch), 0x00U,
+      0x01U, 0U, 0U};
+  feedModbusFrame(server, invalidSameSwitch, 6U);
+  TEST_ASSERT_EQUAL_UINT8(0x86U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[2]);
+}
+
+void test_modbus_motor_config_registers_validate_and_update() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  std::uint8_t readDefaults[8]{
+      1U, 0x03U, 0x00U,
+      static_cast<std::uint8_t>(ModbusRegister::NormalMaxSpeed), 0x00U, 0x03U,
+      0U, 0U};
+  feedModbusFrame(server, readDefaults, 6U);
+
+  TEST_ASSERT_EQUAL_UINT16(400U, responseUint16(uart, 3U));
+  TEST_ASSERT_EQUAL_UINT16(200U, responseUint16(uart, 5U));
+  TEST_ASSERT_EQUAL_UINT16(1000U, responseUint16(uart, 7U));
+
+  uart.clearWritten();
+  std::uint8_t writeConfig[15]{
+      1U, 0x10U, 0x00U,
+      static_cast<std::uint8_t>(ModbusRegister::NormalMaxSpeed), 0x00U, 0x03U,
+      0x06U, 0x03U, 0x84U, 0x00U, 0x96U, 0x03U, 0x52U, 0U, 0U};
+  feedModbusFrame(server, writeConfig, 13U);
+
+  TEST_ASSERT_EQUAL_UINT16(900U,
+                           controller.motorConfig()
+                               .normalMaxSpeedStepsPerSecond);
+  TEST_ASSERT_EQUAL_UINT16(150U,
+                           controller.motorConfig()
+                               .homingMaxSpeedStepsPerSecond);
+  TEST_ASSERT_EQUAL_UINT16(850U, controller.motorConfig().runCurrentMilliamps);
+  TEST_ASSERT_TRUE(events.contains(EventId::MotorConfigChanged));
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x10U, uart.written_[1]);
+
+  uart.clearWritten();
+  std::uint8_t invalidCurrent[8]{
+      1U, 0x06U, 0x00U,
+      static_cast<std::uint8_t>(ModbusRegister::RunCurrentMilliamps), 0x03U,
+      0xE9U, 0U, 0U};
+  feedModbusFrame(server, invalidCurrent, 6U);
+  TEST_ASSERT_EQUAL_UINT16(850U, controller.motorConfig().runCurrentMilliamps);
   TEST_ASSERT_EQUAL_UINT8(0x86U, uart.written_[1]);
   TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[2]);
 }
@@ -2169,6 +2486,25 @@ void test_tmc_driver_updates_stallguard_threshold_register_and_poll_limit() {
                     driver.pollStallGuardStatus());
 }
 
+void test_tmc_driver_updates_run_current_register_from_milliamps() {
+  FakeUart uart;
+  FakeDelay delay;
+  CapturingEvents events;
+  Tmc2209Driver driver(uart, delay, events);
+
+  driver.setRunCurrentMilliamps(500U);
+
+  TEST_ASSERT_EQUAL_UINT16(500U, driver.runCurrentMilliamps());
+  TEST_ASSERT_EQUAL_UINT32(8U, uart.writtenCount_);
+  assertTmcWrite(uart, 0U, 0x10U, 0x00080F08UL);
+
+  uart.clearWritten();
+  driver.setRunCurrentMilliamps(1000U);
+
+  TEST_ASSERT_EQUAL_UINT16(1000U, driver.runCurrentMilliamps());
+  assertTmcWrite(uart, 0U, 0x10U, 0x00081F10UL);
+}
+
 void test_tmc_driver_accepts_datasheet_read_reply_master_address() {
   FakeUart uart;
   FakeDelay delay;
@@ -2254,11 +2590,16 @@ int main(int argc, char** argv) {
   RUN_TEST(test_pico_pin_mapping_matches_current_tmc_wiring);
   RUN_TEST(test_persistent_settings_load_defaults_from_blank_storage);
   RUN_TEST(test_persistent_settings_save_and_reload_valid_settings);
+  RUN_TEST(test_persistent_settings_save_and_reload_homing_config);
+  RUN_TEST(test_persistent_settings_save_and_reload_motor_config);
   RUN_TEST(test_persistent_settings_reject_corrupt_or_out_of_range_data);
   RUN_TEST(test_persistent_settings_loads_newest_valid_record);
   RUN_TEST(test_persistent_settings_falls_back_to_previous_slot_after_corruption);
   RUN_TEST(test_persistent_settings_survives_target_slot_write_failure);
   RUN_TEST(test_homing_sequence_sets_range_and_midpoint);
+  RUN_TEST(test_homing_config_defaults_match_existing_wiring);
+  RUN_TEST(test_homing_config_maps_logical_min_and_max_to_selected_switches);
+  RUN_TEST(test_homing_config_inverts_stepper_direction_without_changing_logic);
   RUN_TEST(test_input_debouncer_requires_stable_switch_state);
   RUN_TEST(test_both_endstops_active_at_boot_enters_fault);
   RUN_TEST(test_homing_moves_to_configured_safe_position);
@@ -2266,6 +2607,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_degree_position_commands_move_and_report_angle);
   RUN_TEST(test_degree_soft_endstop_commands_configure_allowed_angle_range);
   RUN_TEST(test_stallguard_threshold_command_validates_and_reports_setting);
+  RUN_TEST(test_homing_config_command_validates_reports_and_updates);
+  RUN_TEST(test_motor_config_command_validates_reports_and_updates);
   RUN_TEST(test_homing_uses_stallguard_as_min_endstop_redundancy);
   RUN_TEST(test_homing_ignores_stallguard_until_minimum_travel_is_reached);
   RUN_TEST(test_homing_uses_stallguard_as_max_endstop_redundancy);
@@ -2319,6 +2662,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_modbus_flags_report_motion_until_position_reached);
   RUN_TEST(test_modbus_degree_registers_move_and_configure_limits);
   RUN_TEST(test_modbus_stallguard_threshold_register_validates_and_updates);
+  RUN_TEST(test_modbus_homing_config_registers_validate_and_update);
+  RUN_TEST(test_modbus_motor_config_registers_validate_and_update);
   RUN_TEST(test_modbus_broadcast_write_is_ignored_for_home_safety);
   RUN_TEST(test_modbus_safe_position_register_validates_and_updates);
   RUN_TEST(test_modbus_rejects_soft_endstop_writes_while_faulted);
@@ -2331,6 +2676,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_modbus_write_multiple_rejects_command_mixed_with_target);
   RUN_TEST(test_tmc_driver_initializes_and_polls_stall_status);
   RUN_TEST(test_tmc_driver_updates_stallguard_threshold_register_and_poll_limit);
+  RUN_TEST(test_tmc_driver_updates_run_current_register_from_milliamps);
   RUN_TEST(test_tmc_driver_accepts_datasheet_read_reply_master_address);
   RUN_TEST(test_tmc_poll_reports_communication_error_without_response);
   RUN_TEST(test_tmc_poll_reports_not_stalled_above_threshold);

@@ -39,10 +39,12 @@ if ([string]::IsNullOrWhiteSpace($env:NUGET_PACKAGES)) {
 & $dotnet publish $hostProject `
   -c Release `
   -r $Runtime `
+  --ignore-failed-sources `
   --self-contained true `
   -p:PublishSingleFile=true `
   -p:EnableCompressionInSingleFile=true `
   -p:IncludeNativeLibrariesForSelfExtract=true `
+  -p:NuGetAudit=false `
   -o $OutputDirectory
 
 if ($LASTEXITCODE -ne 0) {
@@ -52,10 +54,12 @@ if ($LASTEXITCODE -ne 0) {
 & $dotnet publish $desktopProject `
   -c Release `
   -r $Runtime `
+  --ignore-failed-sources `
   --self-contained true `
   -p:PublishSingleFile=true `
   -p:EnableCompressionInSingleFile=true `
   -p:IncludeNativeLibrariesForSelfExtract=true `
+  -p:NuGetAudit=false `
   -o $OutputDirectory
 
 if ($LASTEXITCODE -ne 0) {

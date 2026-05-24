@@ -4,12 +4,17 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "HomingConfig.h"
+#include "MotorConfig.h"
+
 namespace luefterklappe {
 
 struct PersistentSettings {
   std::uint8_t deviceId{1U};
   std::uint16_t safePositionPermille{1000U};
   std::uint8_t stallGuardThreshold{100U};
+  HomingConfig homing{kDefaultHomingConfig};
+  MotorConfig motor{kDefaultMotorConfig};
 };
 
 class SettingsStoragePort {
@@ -43,7 +48,7 @@ class PersistentSettingsStore {
     PersistentSettings settings;
   };
 
-  static constexpr std::size_t kStorageSize = 16U;
+  static constexpr std::size_t kStorageSize = 24U;
   static constexpr std::size_t kJournalSlotCount = 2U;
 
   bool storageUsable() const;

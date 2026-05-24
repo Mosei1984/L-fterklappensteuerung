@@ -5,6 +5,8 @@
 #include <cstdint>
 
 #include "FaultReason.h"
+#include "HomingConfig.h"
+#include "MotorConfig.h"
 
 namespace luefterklappe {
 
@@ -63,6 +65,12 @@ enum class EventId : std::uint8_t {
   StallGuardThresholdReported,
   StallGuardThresholdChanged,
   StallGuardThresholdInvalid,
+  HomingConfigReported,
+  HomingConfigChanged,
+  HomingConfigInvalid,
+  MotorConfigReported,
+  MotorConfigChanged,
+  MotorConfigInvalid,
   TmcInitializationStarted,
   TmcConfigured,
   FaultReported,
@@ -160,6 +168,8 @@ class FanFlapController {
   bool softEndstopsEnabled() const;
   std::uint16_t safePositionPermille() const;
   std::uint8_t stallGuardThreshold() const;
+  HomingConfig homingConfig() const;
+  MotorConfig motorConfig() const;
   FaultReason lastFaultReason() const;
   std::uint16_t faultCount() const;
 
@@ -168,6 +178,8 @@ class FanFlapController {
   bool setSoftEndstops(SoftEndstopRange range);
   bool setSafePositionPermille(std::uint16_t permille);
   bool setStallGuardThreshold(std::uint16_t threshold);
+  bool setHomingConfig(HomingConfig config);
+  bool setMotorConfig(MotorConfig config);
   std::int32_t moveTo(std::int32_t position);
   void reportExternalFault(FaultReason reason);
 
@@ -216,8 +228,14 @@ class FanFlapController {
   void handleDeviceIdCommand(const TextView& argument);
   void handleSafePositionCommand(const TextView& argument);
   void handleStallGuardThresholdCommand(const TextView& argument);
+  void handleHomingConfigCommand(const TextView& argument);
+  void handleMotorConfigCommand(const TextView& argument);
+  bool parseHomingConfig(const TextView& argument, HomingConfig& config) const;
+  bool parseMotorConfig(const TextView& argument, MotorConfig& config) const;
   bool setSoftEndstopsDegrees(std::uint16_t minDegree,
                               std::uint16_t maxDegree);
+  void applyNormalMaxSpeed();
+  void applyHomingMaxSpeed();
   FaultReason unexpectedSwitchReason(const DigitalInputs& inputs) const;
   bool canMoveWithoutClamp(std::int32_t position) const;
   std::int32_t homingTravelSteps() const;
@@ -226,6 +244,17 @@ class FanFlapController {
   std::uint16_t degreeFromPosition(std::int32_t position) const;
   std::int32_t positionFromPermille(std::uint16_t permille) const;
   std::uint16_t permilleFromPosition(std::int32_t position) const;
+  bool logicalMinSwitchActive(const DigitalInputs& inputs) const;
+  bool logicalMaxSwitchActive(const DigitalInputs& inputs) const;
+  std::int32_t logicalPositionFromMotor(std::int32_t position) const;
+  std::int32_t motorPositionFromLogical(std::int32_t position) const;
+  float logicalSpeed() const;
+  std::int32_t directionSign(HomingDirection direction) const;
+  std::int32_t rawDirectionSign(HomingDirection direction) const;
+  std::int32_t logicalAxisSign() const;
+  void setLogicalCurrentPosition(std::int32_t position);
+  void moveMotorToLogical(std::int32_t position);
+  bool homingConfigCanBeApplied(HomingConfig config) const;
   void beginMotionSupervision();
   void updateMotionSupervision(std::uint32_t nowMs);
   void beginValveFreeCheck();
@@ -265,6 +294,8 @@ class FanFlapController {
   std::uint32_t freeCheckStartMs_;
   std::uint16_t safePositionPermille_;
   std::uint8_t stallGuardThreshold_;
+  HomingConfig homingConfig_;
+  MotorConfig motorConfig_;
   FaultReason lastFaultReason_;
   std::uint16_t faultCount_;
   bool softEndstopsEnabled_;

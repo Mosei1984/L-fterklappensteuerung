@@ -67,6 +67,8 @@ class Tmc2209Driver {
   void sendCommand(std::uint8_t address, std::uint8_t value);
   void setStallGuardThreshold(std::uint8_t threshold);
   std::uint8_t stallGuardThreshold() const;
+  void setRunCurrentMilliamps(std::uint16_t milliamps);
+  std::uint16_t runCurrentMilliamps() const;
   bool readRegister(std::uint8_t registerAddress, std::uint32_t& value);
   Tmc2209PollResult pollStallGuardStatus();
   bool pollStallGuard();
@@ -91,6 +93,9 @@ class Tmc2209Driver {
   static bool isResponseForRegister(const std::uint8_t* data,
                                     const Tmc2209Config& config,
                                     std::uint8_t registerAddress);
+  static std::uint8_t currentScaleFromMilliamps(std::uint16_t milliamps);
+  static std::uint32_t holdRunCurrentValueFromMilliamps(
+      std::uint16_t milliamps);
   void drainReceiveBuffer();
   void writeRegister(RegisterWrite write);
   void writeDatagram(const std::uint8_t* data, std::size_t length);
@@ -99,6 +104,7 @@ class Tmc2209Driver {
   DelayPort& delay_;
   EventSink& events_;
   Tmc2209Config config_;
+  std::uint16_t runCurrentMilliamps_;
 };
 
 }  // namespace luefterklappe

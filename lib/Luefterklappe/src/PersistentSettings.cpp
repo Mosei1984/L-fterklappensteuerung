@@ -6,7 +6,9 @@ namespace {
 constexpr std::uint8_t kMagic0 = 'L';
 constexpr std::uint8_t kMagic1 = 'K';
 constexpr std::uint8_t kLegacyVersion = 2U;
-constexpr std::uint8_t kVersion = 3U;
+constexpr std::uint8_t kStallGuardVersion = 3U;
+constexpr std::uint8_t kHomingVersion = 4U;
+constexpr std::uint8_t kVersion = 5U;
 constexpr std::size_t kMagic0Offset = 0U;
 constexpr std::size_t kMagic1Offset = 1U;
 constexpr std::size_t kVersionOffset = 2U;
@@ -15,10 +17,39 @@ constexpr std::size_t kSafePositionOffset = 4U;
 constexpr std::size_t kLegacyGenerationOffset = 6U;
 constexpr std::size_t kStallGuardThresholdOffset = 6U;
 constexpr std::size_t kGenerationOffset = 7U;
-constexpr std::size_t kReservedOffset = 11U;
-constexpr std::size_t kCrcOffset = 14U;
-constexpr std::size_t kCrcLength = 14U;
-constexpr PersistentSettings kDefaultSettings{1U, 1000U, 100U};
+constexpr std::size_t kHomeMinSwitchOffset = 11U;
+constexpr std::size_t kHomeMaxSwitchOffset = 12U;
+constexpr std::size_t kHomeMinDirectionOffset = 13U;
+constexpr std::size_t kHomeMaxDirectionOffset = 14U;
+constexpr std::size_t kStepperDirectionInvertedOffset = 15U;
+constexpr std::size_t kNormalMaxSpeedOffset = 16U;
+constexpr std::size_t kHomingMaxSpeedOffset = 18U;
+constexpr std::size_t kRunCurrentMilliampsOffset = 20U;
+constexpr std::size_t kLegacyCrcOffset = 14U;
+constexpr std::size_t kLegacyCrcLength = 14U;
+constexpr std::size_t kCrcOffset = 22U;
+constexpr std::size_t kCrcLength = 22U;
+constexpr PersistentSettings kDefaultSettings{1U, 1000U, 100U,
+                                              kDefaultHomingConfig,
+                                              kDefaultMotorConfig};
+
+bool settingsEqual(const PersistentSettings& first,
+                   const PersistentSettings& second) {
+  return (first.deviceId == second.deviceId) &&
+         (first.safePositionPermille == second.safePositionPermille) &&
+         (first.stallGuardThreshold == second.stallGuardThreshold) &&
+         (first.homing.minSwitch == second.homing.minSwitch) &&
+         (first.homing.maxSwitch == second.homing.maxSwitch) &&
+         (first.homing.minDirection == second.homing.minDirection) &&
+         (first.homing.maxDirection == second.homing.maxDirection) &&
+         (first.homing.stepperDirectionInverted ==
+          second.homing.stepperDirectionInverted) &&
+         (first.motor.normalMaxSpeedStepsPerSecond ==
+          second.motor.normalMaxSpeedStepsPerSecond) &&
+         (first.motor.homingMaxSpeedStepsPerSecond ==
+          second.motor.homingMaxSpeedStepsPerSecond) &&
+         (first.motor.runCurrentMilliamps == second.motor.runCurrentMilliamps);
+}
 
 }  // namespace
 
@@ -85,16 +116,14 @@ bool PersistentSettingsStore::save(const PersistentSettings settings) {
 
   const DecodedRecord written = readRecord(targetSlot);
   return written.valid && (written.generation == nextGeneration) &&
-         (written.settings.deviceId == settings.deviceId) &&
-         (written.settings.safePositionPermille ==
-          settings.safePositionPermille) &&
-         (written.settings.stallGuardThreshold ==
-          settings.stallGuardThreshold);
+         settingsEqual(written.settings, settings);
 }
 
 bool PersistentSettingsStore::isValid(const PersistentSettings settings) {
   return (settings.deviceId >= 1U) && (settings.deviceId <= 247U) &&
-         (settings.safePositionPermille <= 1000U);
+         (settings.safePositionPermille <= 1000U) &&
+         homingConfigValuesAreValid(settings.homing) &&
+         motorConfigValuesAreValid(settings.motor);
 }
 
 bool PersistentSettingsStore::storageUsable() const {
@@ -129,22 +158,58 @@ bool PersistentSettingsStore::decodeRecord(
     DecodedRecord& record) const {
   if ((data[kMagic0Offset] != kMagic0) || (data[kMagic1Offset] != kMagic1) ||
       ((data[kVersionOffset] != kVersion) &&
+       (data[kVersionOffset] != kHomingVersion) &&
+       (data[kVersionOffset] != kStallGuardVersion) &&
        (data[kVersionOffset] != kLegacyVersion))) {
     return false;
   }
 
-  const std::uint16_t expectedCrc = crc16(data, kCrcLength);
-  const std::uint16_t storedCrc = readUint16(data, kCrcOffset);
+  const bool legacyRecord = data[kVersionOffset] == kLegacyVersion;
+  const bool stallGuardRecord = data[kVersionOffset] == kStallGuardVersion;
+  const bool homingRecord = data[kVersionOffset] == kHomingVersion;
+  const std::size_t crcLength =
+      (legacyRecord || stallGuardRecord) ? kLegacyCrcLength : kCrcLength;
+  const std::size_t crcOffset =
+      (legacyRecord || stallGuardRecord) ? kLegacyCrcOffset : kCrcOffset;
+  const std::uint16_t expectedCrc = crc16(data, crcLength);
+  const std::uint16_t storedCrc = readUint16(data, crcOffset);
   if (expectedCrc != storedCrc) {
     return false;
   }
 
-  const bool legacyRecord = data[kVersionOffset] == kLegacyVersion;
   const PersistentSettings settings{
       data[kDeviceIdOffset],
       readUint16(data, kSafePositionOffset),
       legacyRecord ? defaults_.stallGuardThreshold
-                   : data[kStallGuardThresholdOffset]};
+                   : data[kStallGuardThresholdOffset],
+      (legacyRecord || stallGuardRecord)
+          ? defaults_.homing
+          : HomingConfig{
+                data[kHomeMinSwitchOffset] == 0U ? HomingSwitch::MinInput
+                                                 : HomingSwitch::MaxInput,
+                data[kHomeMaxSwitchOffset] == 0U ? HomingSwitch::MinInput
+                                                 : HomingSwitch::MaxInput,
+                data[kHomeMinDirectionOffset] == 0U
+                    ? HomingDirection::Negative
+                    : HomingDirection::Positive,
+                data[kHomeMaxDirectionOffset] == 0U
+                    ? HomingDirection::Negative
+                    : HomingDirection::Positive,
+                data[kStepperDirectionInvertedOffset] != 0U},
+      (legacyRecord || stallGuardRecord || homingRecord)
+          ? defaults_.motor
+          : MotorConfig{readUint16(data, kNormalMaxSpeedOffset),
+                        readUint16(data, kHomingMaxSpeedOffset),
+                        readUint16(data, kRunCurrentMilliampsOffset)}};
+  if ((!legacyRecord) && (!stallGuardRecord) &&
+      ((data[kHomeMinSwitchOffset] > 1U) ||
+       (data[kHomeMaxSwitchOffset] > 1U) ||
+       (data[kHomeMinDirectionOffset] > 1U) ||
+       (data[kHomeMaxDirectionOffset] > 1U) ||
+       (data[kStepperDirectionInvertedOffset] > 1U))) {
+    return false;
+  }
+
   if (!isValid(settings)) {
     return false;
   }
@@ -171,9 +236,20 @@ void PersistentSettingsStore::encodeRecord(
   writeUint16(data, kSafePositionOffset, settings.safePositionPermille);
   data[kStallGuardThresholdOffset] = settings.stallGuardThreshold;
   writeUint32(data, kGenerationOffset, generation);
-  data[kReservedOffset] = 0U;
-  data[kReservedOffset + 1U] = 0U;
-  data[kReservedOffset + 2U] = 0U;
+  data[kHomeMinSwitchOffset] = static_cast<std::uint8_t>(settings.homing.minSwitch);
+  data[kHomeMaxSwitchOffset] = static_cast<std::uint8_t>(settings.homing.maxSwitch);
+  data[kHomeMinDirectionOffset] =
+      static_cast<std::uint8_t>(settings.homing.minDirection);
+  data[kHomeMaxDirectionOffset] =
+      static_cast<std::uint8_t>(settings.homing.maxDirection);
+  data[kStepperDirectionInvertedOffset] =
+      settings.homing.stepperDirectionInverted ? 1U : 0U;
+  writeUint16(data, kNormalMaxSpeedOffset,
+              settings.motor.normalMaxSpeedStepsPerSecond);
+  writeUint16(data, kHomingMaxSpeedOffset,
+              settings.motor.homingMaxSpeedStepsPerSecond);
+  writeUint16(data, kRunCurrentMilliampsOffset,
+              settings.motor.runCurrentMilliamps);
   writeUint16(data, kCrcOffset, crc16(data, kCrcLength));
 }
 

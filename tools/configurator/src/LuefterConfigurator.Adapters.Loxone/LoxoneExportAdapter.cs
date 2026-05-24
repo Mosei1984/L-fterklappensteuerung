@@ -33,6 +33,7 @@ public sealed class LoxoneExportAdapter : IHomeAutomationMultiExportAdapter
         builder.AppendLine("- Parameter: `safe_position_promille`, Register 16, Wertebereich 0..1000");
         builder.AppendLine("- Parameter: `soft_min_degree`, `soft_max_degree`, Register 25..26");
         builder.AppendLine("- Expertenparameter: `stallguard_threshold`, Register 27, Wertebereich 0..255");
+        builder.AppendLine("- Inbetriebnahmeparameter: `home_min_switch`, `home_max_switch`, `home_min_direction`, `home_max_direction`, `stepper_direction_inverted`, Register 28..32");
         builder.AppendLine("- Statussensoren: `state`, `flags`, `current_degree`, `position_promille`, Polling 2..5 s; `flags` Bit3 meldet laufende Bewegung");
         builder.AppendLine();
         builder.AppendLine("| Address | Name | Type | Access |");

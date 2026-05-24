@@ -2,11 +2,17 @@
 
 #include <array>
 
+#include "MotorConfig.h"
+
 namespace luefterklappe {
 
 Tmc2209Driver::Tmc2209Driver(UartPort& uart, DelayPort& delay,
                              EventSink& events, const Tmc2209Config& config)
-    : uart_(uart), delay_(delay), events_(events), config_(config) {}
+    : uart_(uart),
+      delay_(delay),
+      events_(events),
+      config_(config),
+      runCurrentMilliamps_(kDefaultMotorConfig.runCurrentMilliamps) {}
 
 void Tmc2209Driver::initialize() {
   const Event initEvent{EventId::TmcInitializationStarted, 0, 0, false};
@@ -44,6 +50,17 @@ void Tmc2209Driver::setStallGuardThreshold(const std::uint8_t threshold) {
 
 std::uint8_t Tmc2209Driver::stallGuardThreshold() const {
   return config_.stallGuardThreshold;
+}
+
+void Tmc2209Driver::setRunCurrentMilliamps(const std::uint16_t milliamps) {
+  runCurrentMilliamps_ = milliamps;
+  config_.holdRunCurrentValue = holdRunCurrentValueFromMilliamps(milliamps);
+  writeRegister(RegisterWrite{config_.holdRunCurrentRegister,
+                              config_.holdRunCurrentValue});
+}
+
+std::uint16_t Tmc2209Driver::runCurrentMilliamps() const {
+  return runCurrentMilliamps_;
 }
 
 void Tmc2209Driver::writeRegister(const RegisterWrite write) {
@@ -196,6 +213,47 @@ bool Tmc2209Driver::isResponseForRegister(
          ((data[2] & ~kWriteAccessMask) ==
           (registerAddress & ~kWriteAccessMask)) &&
          (data[kWriteDatagramLength - 1U] == expectedCrc);
+}
+
+std::uint8_t Tmc2209Driver::currentScaleFromMilliamps(
+    const std::uint16_t milliamps) {
+  std::uint16_t boundedMilliamps = milliamps;
+
+  if (boundedMilliamps < kMinRunCurrentMilliamps) {
+    boundedMilliamps = kMinRunCurrentMilliamps;
+  }
+
+  if (boundedMilliamps > kMaxRunCurrentMilliamps) {
+    boundedMilliamps = kMaxRunCurrentMilliamps;
+  }
+
+  std::uint32_t scaled =
+      ((static_cast<std::uint32_t>(boundedMilliamps) * 32UL) +
+       (kMaxRunCurrentMilliamps - 1U)) /
+      kMaxRunCurrentMilliamps;
+  if (scaled == 0U) {
+    scaled = 1U;
+  }
+
+  if (scaled > 32U) {
+    scaled = 32U;
+  }
+
+  return static_cast<std::uint8_t>(scaled - 1U);
+}
+
+std::uint32_t Tmc2209Driver::holdRunCurrentValueFromMilliamps(
+    const std::uint16_t milliamps) {
+  const std::uint8_t runCurrent = currentScaleFromMilliamps(milliamps);
+  std::uint8_t holdCurrent = static_cast<std::uint8_t>((runCurrent + 1U) / 2U);
+
+  if (holdCurrent > runCurrent) {
+    holdCurrent = runCurrent;
+  }
+
+  constexpr std::uint32_t kHoldDelay = 8UL;
+  return (kHoldDelay << 16U) |
+         (static_cast<std::uint32_t>(runCurrent) << 8U) | holdCurrent;
 }
 
 void Tmc2209Driver::writeDatagram(const std::uint8_t* const data,

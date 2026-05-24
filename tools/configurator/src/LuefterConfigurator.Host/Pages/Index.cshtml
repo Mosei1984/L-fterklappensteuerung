@@ -27,6 +27,7 @@
                 Offline
             </span>
             <button class="primary-action" type="button" data-action="scan">Pico suchen</button>
+            <button class="ghost-action compact danger-action" type="button" data-action="shutdown" aria-label="Konfigurator verlassen und beenden">Beenden</button>
         </div>
     </header>
 
@@ -268,6 +269,50 @@
                         StallGuard
                         <input type="number" min="0" max="255" value="100" aria-label="StallGuard Schwelle" data-stallguard-threshold />
                     </label>
+                    <label>
+                        Normalfahrt Speed
+                        <input type="number" min="20" max="5000" value="400" aria-label="Normalfahrt Geschwindigkeit Steps pro Sekunde" data-normal-speed />
+                    </label>
+                    <label>
+                        Homing Speed
+                        <input type="number" min="20" max="5000" value="200" aria-label="Homing Geschwindigkeit Steps pro Sekunde" data-homing-speed />
+                    </label>
+                    <label>
+                        Motorstrom
+                        <input type="number" min="100" max="1000" value="1000" aria-label="Motorstrom Milliampere" data-run-current-ma />
+                    </label>
+                    <label>
+                        Home Min Switch
+                        <select aria-label="Home Min Switch" data-home-min-switch>
+                            <option value="0" selected>MIN Eingang</option>
+                            <option value="1">MAX Eingang</option>
+                        </select>
+                    </label>
+                    <label>
+                        Home Max Switch
+                        <select aria-label="Home Max Switch" data-home-max-switch>
+                            <option value="0">MIN Eingang</option>
+                            <option value="1" selected>MAX Eingang</option>
+                        </select>
+                    </label>
+                    <label>
+                        Home Min Richtung
+                        <select aria-label="Home Min Richtung" data-home-min-direction>
+                            <option value="0" selected>Negativ</option>
+                            <option value="1">Positiv</option>
+                        </select>
+                    </label>
+                    <label>
+                        Home Max Richtung
+                        <select aria-label="Home Max Richtung" data-home-max-direction>
+                            <option value="0">Negativ</option>
+                            <option value="1" selected>Positiv</option>
+                        </select>
+                    </label>
+                    <label class="checkbox-field">
+                        <input type="checkbox" aria-label="Stepper Richtung invertieren" data-stepper-direction-inverted />
+                        <span>Stepper Richtung invertieren</span>
+                    </label>
                 </div>
 
                 <div class="command-grid">
@@ -319,11 +364,13 @@
                                 <tr><td>7</td><td>Device ID</td><td><span class="access-chip write">R/W</span></td></tr>
                                 <tr><td>8-11</td><td>State, Flags, Position; Bit3 bewegt</td><td><span class="access-chip read">R</span></td></tr>
                                 <tr><td>16</td><td>Sichere Stellung</td><td><span class="access-chip write">R/W</span></td></tr>
-                                <tr><td>17-22</td><td>Fehler, TMC, Boot, Protokoll v3</td><td><span class="access-chip read">R</span></td></tr>
+                                <tr><td>17-22</td><td>Fehler, TMC, Boot, Protokoll v5</td><td><span class="access-chip read">R</span></td></tr>
                                 <tr><td>23</td><td>Grad Ziel</td><td><span class="access-chip write">R/W</span></td></tr>
                                 <tr><td>24</td><td>Grad Ist</td><td><span class="access-chip read">R</span></td></tr>
                                 <tr><td>25-26</td><td>Grad Min und Max</td><td><span class="access-chip write">R/W</span></td></tr>
                                 <tr><td>27</td><td>StallGuard Schwelle</td><td><span class="access-chip write">R/W</span></td></tr>
+                                <tr><td>28-32</td><td>Homing Switches und Richtungen</td><td><span class="access-chip write">R/W</span></td></tr>
+                                <tr><td>33-35</td><td>Speed und Motorstrom</td><td><span class="access-chip write">R/W</span></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -430,6 +477,19 @@
             </section>
         </div>
     </main>
+
+    <dialog class="shutdown-dialog" data-shutdown-dialog aria-labelledby="shutdown-title">
+        <form method="dialog">
+            <p class="section-kicker">Programm beenden</p>
+            <h2 id="shutdown-title">Vor dem Beenden speichern?</h2>
+            <p>Die aktuelle sichtbare Konfiguration kann vor dem Schliessen auf den Controller geschrieben werden.</p>
+            <div class="shutdown-actions">
+                <button class="primary-action compact" type="button" data-shutdown-choice="save">Speichern und beenden</button>
+                <button class="ghost-action compact" type="button" data-shutdown-choice="discard">Ohne Speichern beenden</button>
+                <button class="ghost-action compact" type="button" data-shutdown-choice="cancel">Abbrechen</button>
+            </div>
+        </form>
+    </dialog>
 
     <div class="toast" data-toast role="status" aria-live="polite">Bereit</div>
 </div>

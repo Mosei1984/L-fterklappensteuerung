@@ -24,6 +24,8 @@ public sealed class ExportAdapterTests
         Assert.Contains("soft_min_degree", export.Content, StringComparison.Ordinal);
         Assert.Contains("soft_max_degree", export.Content, StringComparison.Ordinal);
         Assert.Contains("stallguard_threshold", export.Content, StringComparison.Ordinal);
+        Assert.Contains("home_min_switch", export.Content, StringComparison.Ordinal);
+        Assert.Contains("stepper_direction_inverted", export.Content, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -53,7 +55,7 @@ public sealed class ExportAdapterTests
         Assert.Equal("fanflap", json.RootElement.GetProperty("profileId").GetString());
         Assert.Equal(17, json.RootElement.GetProperty("deviceId").GetInt32());
         Assert.Equal(5, json.RootElement.GetProperty("commands").GetProperty("refreshMachine").GetInt32());
-        Assert.Equal(28, json.RootElement.GetProperty("registers").GetArrayLength());
+        Assert.Equal(36, json.RootElement.GetProperty("registers").GetArrayLength());
         Assert.Contains(json.RootElement.GetProperty("registers").EnumerateArray(), register =>
             register.GetProperty("name").GetString() == "current_degree");
         Assert.Contains(json.RootElement.GetProperty("registers").EnumerateArray(), register =>
@@ -62,6 +64,12 @@ public sealed class ExportAdapterTests
             register.GetProperty("name").GetString() == "soft_max_degree");
         Assert.Contains(json.RootElement.GetProperty("registers").EnumerateArray(), register =>
             register.GetProperty("name").GetString() == "stallguard_threshold");
+        Assert.Contains(json.RootElement.GetProperty("registers").EnumerateArray(), register =>
+            register.GetProperty("name").GetString() == "home_min_switch");
+        Assert.Contains(json.RootElement.GetProperty("registers").EnumerateArray(), register =>
+            register.GetProperty("name").GetString() == "stepper_direction_inverted");
+        Assert.Contains(json.RootElement.GetProperty("registers").EnumerateArray(), register =>
+            register.GetProperty("name").GetString() == "run_current_milliamps");
     }
 
     [Fact]

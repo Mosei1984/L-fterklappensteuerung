@@ -3,7 +3,7 @@ using LuefterConfigurator.Application;
 
 namespace LuefterConfigurator.Infrastructure.Serial;
 
-public sealed class SystemSerialControllerCommandClient : IControllerCommandClient
+public sealed class SystemSerialControllerCommandClient(SystemSerialConnectionCloser connectionCloser) : IControllerCommandClient
 {
     private const int BaudRate = 115200;
     private static readonly TimeSpan OpenSettleDelay = TimeSpan.FromMilliseconds(300);
@@ -16,7 +16,7 @@ public sealed class SystemSerialControllerCommandClient : IControllerCommandClie
         CancellationToken cancellationToken)
         => await Task.Run(() => SendBlocking(portName, command, timeout, cancellationToken), cancellationToken);
 
-    private static ControllerCommandResult SendBlocking(
+    private ControllerCommandResult SendBlocking(
         string? portName,
         string command,
         TimeSpan timeout,
@@ -36,6 +36,7 @@ public sealed class SystemSerialControllerCommandClient : IControllerCommandClie
             WriteTimeout = 500
         };
 
+        using var lease = connectionCloser.Track(serialPort);
         serialPort.Open();
         Thread.Sleep(OpenSettleDelay);
         cancellationToken.ThrowIfCancellationRequested();

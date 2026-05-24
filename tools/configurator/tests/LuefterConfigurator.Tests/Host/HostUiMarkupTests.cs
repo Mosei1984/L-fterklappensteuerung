@@ -19,6 +19,26 @@ public sealed class HostUiMarkupTests
     }
 
     [Fact]
+    public void IndexPageContainsVisibleShutdownAction()
+    {
+        var indexPath = Path.Combine("..", "..", "..", "..", "..", "src", "LuefterConfigurator.Host", "Pages", "Index.cshtml");
+        var scriptPath = Path.Combine("..", "..", "..", "..", "..", "src", "LuefterConfigurator.Host", "wwwroot", "js", "site.js");
+
+        var markup = File.ReadAllText(indexPath);
+        var script = File.ReadAllText(scriptPath);
+
+        Assert.Contains("data-action=\"shutdown\"", markup, StringComparison.Ordinal);
+        Assert.Contains("data-shutdown-dialog", markup, StringComparison.Ordinal);
+        Assert.Contains("data-shutdown-choice=\"save\"", markup, StringComparison.Ordinal);
+        Assert.Contains("data-shutdown-choice=\"discard\"", markup, StringComparison.Ordinal);
+        Assert.Contains("data-shutdown-choice=\"cancel\"", markup, StringComparison.Ordinal);
+        Assert.Contains("Beenden", markup, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/api/app/shutdown", script, StringComparison.Ordinal);
+        Assert.Contains("requestShutdownChoice", script, StringComparison.Ordinal);
+        Assert.Contains("Konfigurator wird beendet", script, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void IndexPageContainsRecognizableExportDownloadArea()
     {
         var indexPath = Path.Combine("..", "..", "..", "..", "..", "src", "LuefterConfigurator.Host", "Pages", "Index.cshtml");
@@ -72,7 +92,9 @@ public sealed class HostUiMarkupTests
     public void IndexPageUsesPlainLanguageForDefaultSetupFlow()
     {
         var indexPath = Path.Combine("..", "..", "..", "..", "..", "src", "LuefterConfigurator.Host", "Pages", "Index.cshtml");
+        var scriptPath = Path.Combine("..", "..", "..", "..", "..", "src", "LuefterConfigurator.Host", "wwwroot", "js", "site.js");
         var markup = File.ReadAllText(indexPath);
+        var script = File.ReadAllText(scriptPath);
 
         Assert.Contains("Luefterklappe Schritt fuer Schritt einrichten", markup, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Pico suchen", markup, StringComparison.OrdinalIgnoreCase);
@@ -83,6 +105,16 @@ public sealed class HostUiMarkupTests
         Assert.Contains("data-soft-min-degree", markup, StringComparison.Ordinal);
         Assert.Contains("data-soft-max-degree", markup, StringComparison.Ordinal);
         Assert.Contains("data-stallguard-threshold", markup, StringComparison.Ordinal);
+        Assert.Contains("data-normal-speed", markup, StringComparison.Ordinal);
+        Assert.Contains("data-homing-speed", markup, StringComparison.Ordinal);
+        Assert.Contains("data-run-current-ma", markup, StringComparison.Ordinal);
+        Assert.Contains("data-home-min-switch", markup, StringComparison.Ordinal);
+        Assert.Contains("data-home-max-switch", markup, StringComparison.Ordinal);
+        Assert.Contains("data-home-min-direction", markup, StringComparison.Ordinal);
+        Assert.Contains("data-home-max-direction", markup, StringComparison.Ordinal);
+        Assert.Contains("data-stepper-direction-inverted", markup, StringComparison.Ordinal);
+        Assert.Contains("Motorstrom", markup, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("MOTORCFG", script, StringComparison.Ordinal);
         Assert.Contains("Fehler neu starten", markup, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Refresh Machine", markup, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Safe State", markup, StringComparison.OrdinalIgnoreCase);

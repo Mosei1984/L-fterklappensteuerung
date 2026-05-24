@@ -120,8 +120,20 @@ function Invoke-AgentHookSmoke {
 
 Push-Location $repoRoot
 try {
-  $toolPathPrefix = 'C:\msys64\mingw64\bin;C:\msys64\usr\bin;C:\Program Files\Git\cmd;C:\Users\mosei\AppData\Local\Programs\Python\Python312\Scripts'
-  $env:PATH = "$toolPathPrefix;$env:PATH"
+  $pythonScriptCandidates = @(
+    (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\Scripts'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\Scripts'),
+    'C:\Python312\Scripts',
+    'C:\Python311\Scripts'
+  )
+  $toolPathPrefix = (@(
+    'C:\msys64\mingw64\bin',
+    'C:\msys64\usr\bin',
+    'C:\Program Files\Git\cmd'
+  ) + $pythonScriptCandidates) |
+    Where-Object { Test-Path $_ } |
+    Select-Object -Unique
+  $env:PATH = "$(($toolPathPrefix -join ';'));$env:PATH"
 
   $dotnet = Join-Path $env:USERPROFILE '.dotnet8\dotnet.exe'
   if (-not (Test-Path $dotnet)) {
@@ -130,6 +142,7 @@ try {
   }
 
   $env:DOTNET_ROOT = Split-Path $dotnet -Parent
+  New-Item -ItemType Directory -Force -Path .\.dotnet-cli-home, .\.nuget | Out-Null
   $env:DOTNET_CLI_HOME = (Resolve-Path .\.dotnet-cli-home).Path
   $env:NUGET_PACKAGES = (Resolve-Path .\.nuget).Path
 
@@ -227,7 +240,7 @@ try {
 
   Invoke-HardStep 'Configurator restore and build logs' {
     Invoke-LoggedCommand 'dotnet restore configurator solution' 'dotnet-restore.log' {
-      & $dotnet restore .\tools\configurator\LuefterConfigurator.sln
+      & $dotnet restore .\tools\configurator\LuefterConfigurator.sln --ignore-failed-sources -p:NuGetAudit=false
     }
     Invoke-LoggedCommand 'dotnet build configurator solution' 'dotnet-build.log' {
       & $dotnet build .\tools\configurator\LuefterConfigurator.sln --no-restore -bl:(Join-Path $logs 'configurator-build.binlog') -flp:"logfile=$(Join-Path $logs 'configurator-build-msbuild.log');verbosity=normal"
@@ -307,7 +320,7 @@ try {
   if (-not $SkipFirmwareGate) {
     Invoke-HardStep 'Full firmware/configurator quality gate' {
       Invoke-LoggedCommand 'tools/run_quality_checks.ps1' 'run-quality-checks.log' {
-        $env:PATH = 'C:\msys64\mingw64\bin;C:\msys64\usr\bin;C:\Users\mosei\AppData\Local\Programs\Python\Python312\Scripts;' + $env:PATH
+        $env:PATH = "$(($toolPathPrefix -join ';'));$env:PATH"
         $env:PLATFORMIO_CORE_DIR = 'C:\pio-luefter'
         powershell -ExecutionPolicy Bypass -File .\tools\run_quality_checks.ps1
       }

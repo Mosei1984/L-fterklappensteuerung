@@ -5,7 +5,7 @@
 namespace luefterklappe {
 namespace {
 
-constexpr std::uint16_t kRegisterCount = 28U;
+constexpr std::uint16_t kRegisterCount = 36U;
 constexpr std::uint16_t kMaxReadRegisters = kRegisterCount;
 constexpr std::size_t kMaxWriteRegisters = kRegisterCount;
 constexpr std::uint16_t kReadyFlag = 0x0001U;
@@ -17,7 +17,7 @@ constexpr std::uint16_t kMaxDegree = 90U;
 constexpr std::uint16_t kMaxStallGuardThreshold = 255U;
 constexpr std::uint16_t kSettingsStatusOk = 0U;
 constexpr std::uint16_t kTmcHealthUnknown = 0U;
-constexpr std::uint16_t kFirmwareProtocolVersion = 3U;
+constexpr std::uint16_t kFirmwareProtocolVersion = 5U;
 
 bool isFaultState(const ControllerState state) {
   return (state == ControllerState::ErrorDetected) ||
@@ -284,12 +284,16 @@ std::uint8_t ModbusRtuServer::validateRegisterWrites(
   bool hasTargetDegree = false;
   bool hasSoftEndstop = false;
   bool hasSoftEndstopDegree = false;
+  bool hasHomingConfig = false;
+  bool hasMotorConfig = false;
   std::int32_t proposedSoftMin = controller_.softMinPosition();
   std::int32_t proposedSoftMax = controller_.softMaxPosition();
   std::uint16_t proposedSoftMinDegree =
       degreeFromPosition(controller_.softMaxPosition());
   std::uint16_t proposedSoftMaxDegree =
       degreeFromPosition(controller_.softMinPosition());
+  HomingConfig proposedHoming = controller_.homingConfig();
+  MotorConfig proposedMotor = controller_.motorConfig();
 
   for (std::size_t index = 0U; index < count; ++index) {
     const RegisterWrite write = writes[index];
@@ -316,6 +320,44 @@ std::uint8_t ModbusRtuServer::validateRegisterWrites(
         break;
       case ModbusRegister::SafePositionPermille:
       case ModbusRegister::StallGuardThreshold:
+        break;
+      case ModbusRegister::HomeMinSwitch:
+        hasHomingConfig = true;
+        proposedHoming.minSwitch =
+            write.value == 0U ? HomingSwitch::MinInput : HomingSwitch::MaxInput;
+        break;
+      case ModbusRegister::HomeMaxSwitch:
+        hasHomingConfig = true;
+        proposedHoming.maxSwitch =
+            write.value == 0U ? HomingSwitch::MinInput : HomingSwitch::MaxInput;
+        break;
+      case ModbusRegister::HomeMinDirection:
+        hasHomingConfig = true;
+        proposedHoming.minDirection = write.value == 0U
+                                          ? HomingDirection::Negative
+                                          : HomingDirection::Positive;
+        break;
+      case ModbusRegister::HomeMaxDirection:
+        hasHomingConfig = true;
+        proposedHoming.maxDirection = write.value == 0U
+                                          ? HomingDirection::Negative
+                                          : HomingDirection::Positive;
+        break;
+      case ModbusRegister::StepperDirectionInverted:
+        hasHomingConfig = true;
+        proposedHoming.stepperDirectionInverted = write.value != 0U;
+        break;
+      case ModbusRegister::NormalMaxSpeed:
+        hasMotorConfig = true;
+        proposedMotor.normalMaxSpeedStepsPerSecond = write.value;
+        break;
+      case ModbusRegister::HomingMaxSpeed:
+        hasMotorConfig = true;
+        proposedMotor.homingMaxSpeedStepsPerSecond = write.value;
+        break;
+      case ModbusRegister::RunCurrentMilliamps:
+        hasMotorConfig = true;
+        proposedMotor.runCurrentMilliamps = write.value;
         break;
       case ModbusRegister::SoftMinDegree:
         hasSoftEndstopDegree = true;
@@ -389,6 +431,14 @@ std::uint8_t ModbusRtuServer::validateRegisterWrites(
     return kIllegalDataValue;
   }
 
+  if (hasHomingConfig && !homingConfigValuesAreValid(proposedHoming)) {
+    return kIllegalDataValue;
+  }
+
+  if (hasMotorConfig && !motorConfigValuesAreValid(proposedMotor)) {
+    return kIllegalDataValue;
+  }
+
   return kNoException;
 }
 
@@ -453,6 +503,28 @@ std::uint8_t ModbusRtuServer::validateRegisterWrite(
       return kNoException;
     case ModbusRegister::StallGuardThreshold:
       if (write.value > kMaxStallGuardThreshold) {
+        return kIllegalDataValue;
+      }
+      return kNoException;
+    case ModbusRegister::HomeMinSwitch:
+    case ModbusRegister::HomeMaxSwitch:
+    case ModbusRegister::HomeMinDirection:
+    case ModbusRegister::HomeMaxDirection:
+    case ModbusRegister::StepperDirectionInverted:
+      if (write.value > 1U) {
+        return kIllegalDataValue;
+      }
+      return kNoException;
+    case ModbusRegister::NormalMaxSpeed:
+    case ModbusRegister::HomingMaxSpeed:
+      if ((write.value < kMinMotorSpeedStepsPerSecond) ||
+          (write.value > kMaxMotorSpeedStepsPerSecond)) {
+        return kIllegalDataValue;
+      }
+      return kNoException;
+    case ModbusRegister::RunCurrentMilliamps:
+      if ((write.value < kMinRunCurrentMilliamps) ||
+          (write.value > kMaxRunCurrentMilliamps)) {
         return kIllegalDataValue;
       }
       return kNoException;
@@ -523,6 +595,8 @@ bool ModbusRtuServer::applyRegisterWrites(const RegisterWrite* const writes,
   bool hasTargetPosition = false;
   bool hasTargetPermille = false;
   bool hasTargetDegree = false;
+  bool hasHomingConfig = false;
+  bool hasMotorConfig = false;
   std::uint16_t targetPermille = 0U;
   std::uint16_t targetDegree = 0U;
   std::int32_t proposedSoftMin = controller_.softMinPosition();
@@ -532,6 +606,8 @@ bool ModbusRtuServer::applyRegisterWrites(const RegisterWrite* const writes,
   std::uint16_t proposedSoftMaxDegree =
       degreeFromPosition(controller_.softMinPosition());
   std::int32_t proposedTarget = controller_.targetPosition();
+  HomingConfig proposedHoming = controller_.homingConfig();
+  MotorConfig proposedMotor = controller_.motorConfig();
 
   for (std::size_t index = 0U; index < count; ++index) {
     const RegisterWrite write = writes[index];
@@ -594,6 +670,44 @@ bool ModbusRtuServer::applyRegisterWrites(const RegisterWrite* const writes,
           return false;
         }
         break;
+      case ModbusRegister::HomeMinSwitch:
+        hasHomingConfig = true;
+        proposedHoming.minSwitch =
+            write.value == 0U ? HomingSwitch::MinInput : HomingSwitch::MaxInput;
+        break;
+      case ModbusRegister::HomeMaxSwitch:
+        hasHomingConfig = true;
+        proposedHoming.maxSwitch =
+            write.value == 0U ? HomingSwitch::MinInput : HomingSwitch::MaxInput;
+        break;
+      case ModbusRegister::HomeMinDirection:
+        hasHomingConfig = true;
+        proposedHoming.minDirection = write.value == 0U
+                                          ? HomingDirection::Negative
+                                          : HomingDirection::Positive;
+        break;
+      case ModbusRegister::HomeMaxDirection:
+        hasHomingConfig = true;
+        proposedHoming.maxDirection = write.value == 0U
+                                          ? HomingDirection::Negative
+                                          : HomingDirection::Positive;
+        break;
+      case ModbusRegister::StepperDirectionInverted:
+        hasHomingConfig = true;
+        proposedHoming.stepperDirectionInverted = write.value != 0U;
+        break;
+      case ModbusRegister::NormalMaxSpeed:
+        hasMotorConfig = true;
+        proposedMotor.normalMaxSpeedStepsPerSecond = write.value;
+        break;
+      case ModbusRegister::HomingMaxSpeed:
+        hasMotorConfig = true;
+        proposedMotor.homingMaxSpeedStepsPerSecond = write.value;
+        break;
+      case ModbusRegister::RunCurrentMilliamps:
+        hasMotorConfig = true;
+        proposedMotor.runCurrentMilliamps = write.value;
+        break;
       case ModbusRegister::State:
       case ModbusRegister::Flags:
       case ModbusRegister::CurrentPositionHigh:
@@ -621,6 +735,14 @@ bool ModbusRtuServer::applyRegisterWrites(const RegisterWrite* const writes,
   if (hasSoftEndstopDegree &&
       !applyDegreeSoftEndstops(proposedSoftMinDegree,
                                proposedSoftMaxDegree)) {
+    return false;
+  }
+
+  if (hasHomingConfig && !controller_.setHomingConfig(proposedHoming)) {
+    return false;
+  }
+
+  if (hasMotorConfig && !controller_.setMotorConfig(proposedMotor)) {
     return false;
   }
 
@@ -718,6 +840,60 @@ bool ModbusRtuServer::writeRegister(const RegisterWrite write) {
       return controller_.setSafePositionPermille(write.value);
     case ModbusRegister::StallGuardThreshold:
       return controller_.setStallGuardThreshold(write.value);
+    case ModbusRegister::HomeMinSwitch:
+    case ModbusRegister::HomeMaxSwitch:
+    case ModbusRegister::HomeMinDirection:
+    case ModbusRegister::HomeMaxDirection:
+    case ModbusRegister::StepperDirectionInverted:
+    {
+      HomingConfig homing = controller_.homingConfig();
+      switch (static_cast<ModbusRegister>(write.address)) {
+        case ModbusRegister::HomeMinSwitch:
+          homing.minSwitch = write.value == 0U ? HomingSwitch::MinInput
+                                               : HomingSwitch::MaxInput;
+          break;
+        case ModbusRegister::HomeMaxSwitch:
+          homing.maxSwitch = write.value == 0U ? HomingSwitch::MinInput
+                                               : HomingSwitch::MaxInput;
+          break;
+        case ModbusRegister::HomeMinDirection:
+          homing.minDirection = write.value == 0U
+                                    ? HomingDirection::Negative
+                                    : HomingDirection::Positive;
+          break;
+        case ModbusRegister::HomeMaxDirection:
+          homing.maxDirection = write.value == 0U
+                                    ? HomingDirection::Negative
+                                    : HomingDirection::Positive;
+          break;
+        case ModbusRegister::StepperDirectionInverted:
+          homing.stepperDirectionInverted = write.value != 0U;
+          break;
+        default:
+          break;
+      }
+      return controller_.setHomingConfig(homing);
+    }
+    case ModbusRegister::NormalMaxSpeed:
+    case ModbusRegister::HomingMaxSpeed:
+    case ModbusRegister::RunCurrentMilliamps:
+    {
+      MotorConfig motor = controller_.motorConfig();
+      switch (static_cast<ModbusRegister>(write.address)) {
+        case ModbusRegister::NormalMaxSpeed:
+          motor.normalMaxSpeedStepsPerSecond = write.value;
+          break;
+        case ModbusRegister::HomingMaxSpeed:
+          motor.homingMaxSpeedStepsPerSecond = write.value;
+          break;
+        case ModbusRegister::RunCurrentMilliamps:
+          motor.runCurrentMilliamps = write.value;
+          break;
+        default:
+          break;
+      }
+      return controller_.setMotorConfig(motor);
+    }
     case ModbusRegister::State:
     case ModbusRegister::Flags:
     case ModbusRegister::CurrentPositionHigh:
@@ -842,6 +1018,32 @@ bool ModbusRtuServer::readRegister(const std::uint16_t address,
       return true;
     case ModbusRegister::FirmwareProtocolVersion:
       value = kFirmwareProtocolVersion;
+      return true;
+    case ModbusRegister::HomeMinSwitch:
+      value = static_cast<std::uint16_t>(controller_.homingConfig().minSwitch);
+      return true;
+    case ModbusRegister::HomeMaxSwitch:
+      value = static_cast<std::uint16_t>(controller_.homingConfig().maxSwitch);
+      return true;
+    case ModbusRegister::HomeMinDirection:
+      value =
+          static_cast<std::uint16_t>(controller_.homingConfig().minDirection);
+      return true;
+    case ModbusRegister::HomeMaxDirection:
+      value =
+          static_cast<std::uint16_t>(controller_.homingConfig().maxDirection);
+      return true;
+    case ModbusRegister::StepperDirectionInverted:
+      value = controller_.homingConfig().stepperDirectionInverted ? 1U : 0U;
+      return true;
+    case ModbusRegister::NormalMaxSpeed:
+      value = controller_.motorConfig().normalMaxSpeedStepsPerSecond;
+      return true;
+    case ModbusRegister::HomingMaxSpeed:
+      value = controller_.motorConfig().homingMaxSpeedStepsPerSecond;
+      return true;
+    case ModbusRegister::RunCurrentMilliamps:
+      value = controller_.motorConfig().runCurrentMilliamps;
       return true;
   }
 

@@ -36,6 +36,41 @@ Raspberry-Pi-Pico/Arduino-HAL.
 - Firmware-Acceptance-Skript mit No-Hardware-, Hardware- und optionalem
   Logic-Analyzer-Modus.
 
+## Schnellstart nach dem Klonen
+
+Auf einem frischen Windows-PC sind diese Werkzeuge erwartet:
+
+- Git, PowerShell und Visual Studio oder VS Code.
+- .NET 8 SDK. Alternativ ein lokales SDK unter `%USERPROFILE%\.dotnet8`.
+- Python 3.12 oder 3.11 mit PlatformIO.
+- MSYS2 unter `C:\msys64` mit `mingw-w64-x86_64-nodejs`,
+  `mingw-w64-x86_64-cppcheck` und `mingw-w64-x86_64-clang-tools-extra`.
+- WebView2 Runtime fuer die Windows-App. Auf aktuellen Windows-Installationen
+  ist sie normalerweise vorhanden.
+
+Clone und Bootstrap:
+
+```powershell
+git clone https://github.com/Mosei1984/L-fterklappensteuerung.git
+cd .\L-fterklappensteuerung
+
+$pythonScripts = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\Scripts'
+$env:PATH = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$pythonScripts;$env:PATH"
+$env:PLATFORMIO_CORE_DIR = 'C:\pio-luefter'
+New-Item -ItemType Directory -Force -Path .\.dotnet-cli-home, .\.nuget | Out-Null
+$env:DOTNET_CLI_HOME = (Resolve-Path .\.dotnet-cli-home).Path
+$env:NUGET_PACKAGES = (Resolve-Path .\.nuget).Path
+python -m pip install --upgrade pip platformio
+npm install
+dotnet restore .\tools\configurator\LuefterConfigurator.sln --ignore-failed-sources -p:NuGetAudit=false
+powershell -ExecutionPolicy Bypass -File .\tools\run_quality_checks.ps1
+```
+
+Neue Agenten sollen zuerst `AGENTS.md` lesen. Dort stehen Arbeitsbereiche,
+Guardrails, Gate-Befehle, Release-Abnahme und Git-Regeln kompakt zusammen.
+Visual Studio oeffnet die Loesung `tools/configurator/LuefterConfigurator.sln`;
+Firmware-Builds laufen ueber PlatformIO aus dem Repository-Root.
+
 ## Architektur
 
 ```mermaid
@@ -73,7 +108,7 @@ flowchart TB
     Controller["FanFlapController<br/>state machine, debounce, homing, faults"]
     Modbus["ModbusRtuServer<br/>CRC16, address filter, registers"]
     Tmc["Tmc2209Driver<br/>UART datagrams, CRC, StallGuard"]
-    Settings["PersistentSettings<br/>journaled ID, safe position, StallGuard, CRC"]
+    Settings["PersistentSettings<br/>journaled ID, safe position,<br/>StallGuard, homing config, motor config, CRC"]
     Ports["IoPorts interfaces<br/>StepperPort, UartPort, DelayPort, EventSink"]
   end
 
@@ -87,8 +122,8 @@ flowchart TB
 
   subgraph Quality["Quality and agent guardrails"]
     HardGate["tools/run_hard_checks.ps1<br/>all-functions gate"]
-    FirmwareTests["Firmware native tests<br/>73 cases"]
-    ConfigTests["Configurator xUnit tests<br/>65 cases + Cobertura"]
+    FirmwareTests["Firmware native tests<br/>95 cases"]
+    ConfigTests["Configurator xUnit tests<br/>77 cases + Cobertura"]
     StaticChecks["clang-tidy, cppcheck, MISRA path<br/>markdownlint, Razor, LSP logs"]
     AgentHooks["tools/agent-hooks<br/>repo and subagent policy smoke tests"]
   end
@@ -147,7 +182,7 @@ flowchart TB
 | `lib/Luefterklappe/src/FanFlapController.*` | State-Machine, Homing, Softlimits, Fehlerbehandlung, Textbefehle |
 | `lib/Luefterklappe/src/Tmc2209Driver.*` | TMC2209-UART-Datagramme, CRC, Konfiguration, StallGuard |
 | `lib/Luefterklappe/src/ModbusRtuServer.*` | Modbus-RTU-Slave, Registermap, CRC16, Exception Responses |
-| `lib/Luefterklappe/src/PersistentSettings.*` | Persistente ID/Safe-Position/StallGuard-Schwelle mit Dual-Sektor-Journal, Magic, Version und CRC |
+| `lib/Luefterklappe/src/PersistentSettings.*` | Persistente ID/Safe-Position/StallGuard-Schwelle/Homing-/Motor-Konfiguration mit Dual-Sektor-Journal, Magic, Version und CRC |
 | `src/main.cpp` | Pico/Arduino-HAL, Pinning, Serial1 RS485, TMC-UART, GPIO, Flash, Watchdog und LED |
 | `test/test_controller/test_main.cpp` | Native Unit-Tests fuer Core, Modbus und TMC |
 | `tools/la/` | sigrok-cli Capture, Decode und Offline-Analyse |
@@ -183,9 +218,9 @@ Expertentests vorgesehen.
 Expert-Host aus dem Quellbaum starten:
 
 ```powershell
-$env:DOTNET_ROOT='C:\Users\mosei\.dotnet8'
+New-Item -ItemType Directory -Force -Path .\.dotnet-cli-home | Out-Null
 $env:DOTNET_CLI_HOME=(Resolve-Path .\.dotnet-cli-home).Path
-& 'C:\Users\mosei\.dotnet8\dotnet.exe' run --project .\tools\configurator\src\LuefterConfigurator.Host
+dotnet run --project .\tools\configurator\src\LuefterConfigurator.Host
 ```
 
 Windows Installation bauen:
@@ -382,12 +417,20 @@ Adressen sind 0-basiert, passend fuer Loxone Config.
 | 19 | R | Letzter Settings-Status: `0` unknown, `1` default, `2` loaded, `3` saved, `4` failed |
 | 20 | R | TMC-Health: `0` unknown, `1` ok, `2` communication error, `3` disabled by build |
 | 21 | R | Boot-Grund: `0` unknown, `1` power-on, `2` watchdog, `3` software reset |
-| 22 | R | Firmware-Protokollversion, aktuell `3` |
+| 22 | R | Firmware-Protokollversion, aktuell `5` |
 | 23 | R/W | `target_degree`: Zielwinkel `0..90` Grad; `0` offen/waagrecht, `90` geschlossen/senkrecht |
 | 24 | R | `current_degree`: Istwinkel `0..90` Grad |
 | 25 | R/W | `soft_min_degree`: Soft-Min Winkel `0..90` Grad |
 | 26 | R/W | `soft_max_degree`: Soft-Max Winkel `0..90` Grad |
 | 27 | R/W | `stallguard_threshold`: StallGuard-Schwelle `0..255`; wird im Flash gespeichert und als TMC2209 SGTHRS geschrieben |
+| 28 | R/W | `home_min_switch`: logischer Min-Endpunkt, `0` MIN-Eingang, `1` MAX-Eingang |
+| 29 | R/W | `home_max_switch`: logischer Max-Endpunkt, `0` MIN-Eingang, `1` MAX-Eingang |
+| 30 | R/W | `home_min_direction`: Start-Richtung fuer Min-Homing, `0` negativ, `1` positiv |
+| 31 | R/W | `home_max_direction`: Start-Richtung fuer Max-Homing, `0` negativ, `1` positiv |
+| 32 | R/W | `stepper_direction_inverted`: Stepper-Richtung invertieren, `0` normal, `1` invertiert |
+| 33 | R/W | `normal_max_speed`: maximale Fahrgeschwindigkeit normaler Zielbewegungen in Steps/s, `20..5000` |
+| 34 | R/W | `homing_max_speed`: maximale Homing-Geschwindigkeit in Steps/s, `20..5000` |
+| 35 | R/W | `run_current_milliamps`: TMC2209-Laufstromlimit in mA, `100..1000`, wird per UART als `IHOLD_IRUN` geschrieben |
 
 `FaultReason`-Werte in Register `17`:
 
@@ -413,7 +456,9 @@ Empfohlen fuer Loxone:
 - Optional Register `14` als Legacy-Aktor `0..1000` Promille.
 - Register `16` als Parameter fuer die Safe-Position verwenden.
 - Register `25`, `26` und `27` als Expertenparameter fuer Grad-Limits und
-  StallGuard-Schwelle verwenden.
+  StallGuard-Schwelle verwenden; Register `28..32` nur fuer Inbetriebnahme
+  der Endschalter-/Richtungszuordnung schreiben; Register `33..35` fuer
+  Speed/Strom nur nach Motor- und Mechaniktest anpassen.
 - Nach dem Schreiben von Register `23` oder `14` Register `9`, `15` und `24`
   pollen:
   Bit3 `moving` bleibt gesetzt, bis die Istposition die Zielposition erreicht.
@@ -422,7 +467,7 @@ Empfohlen fuer Loxone:
 - Register `0` mit Wert `5` als Fehler-Rehome/Refresh-Machine-Befehl
   vorsehen, damit nach Blockade oder Endschalterfehler kein Pico-Reset noetig
   ist.
-- Register `0..27` koennen in einem Holding-Register-Block gelesen werden,
+- Register `0..35` koennen in einem Holding-Register-Block gelesen werden,
   damit Loxone/Modbus-TCP-Gateways den Zustand konsistent erfassen.
 - Schnelle Bewegung, Endschalter, Softlimits, StallGuard und Fehlerbehandlung
   lokal im Controller lassen.
@@ -460,6 +505,10 @@ adressierte Befehle funktionieren dort ebenfalls.
 | `ID<n> SAFE <0..1000>` | Safe-Position setzen und speichern |
 | `ID<n> STALLGUARD?` | StallGuard-Schwelle melden |
 | `ID<n> STALLGUARD <0..255>` | StallGuard-Schwelle setzen, speichern und auf SGTHRS schreiben |
+| `ID<n> HOMECFG?` | Homing-Zuordnung melden: Min-Switch, Max-Switch, Min-Richtung, Max-Richtung, Stepper-Invert |
+| `ID<n> HOMECFG <0\|1> <0\|1> <0\|1> <0\|1> <0\|1>` | Homing-Zuordnung setzen und speichern; unterschiedliche Switches und Richtungen sind Pflicht |
+| `ID<n> MOTORCFG?` | Motorparameter melden: Normalfahrt-Speed, Homing-Speed, TMC2209-Laufstrom in mA |
+| `ID<n> MOTORCFG <20..5000> <20..5000> <100..1000>` | Motor-Speed und Laufstrom setzen, speichern und per TMC-UART auf `IHOLD_IRUN` schreiben |
 | `ID<n> FAULT?` | letzten Fehlergrund und Fault-Counter melden |
 | `ID<n> DIAG?` | Diagnose-Snapshot mit Fehlergrund und Fault-Counter melden |
 | `ID<n> SELFTEST?` | nicht-bewegenden Selbsttest mit State, ID, Safe-Position und Endschaltern melden |
@@ -472,34 +521,37 @@ Nur fuer Servicebetrieb kann `LUEFTERKLAPPE_EVENTS_TO_RS485=1` gesetzt werden.
 
 ### 1. Abhaengigkeiten installieren
 
-PlatformIO wird fuer Firmware und Tests benoetigt. Mermaid CLI ist als lokale
-Dev-Dependency installiert und wird ueber `npm install` wiederhergestellt.
+PlatformIO wird fuer Firmware und Tests benoetigt. Mermaid CLI und
+Markdownlint sind lokale Dev-Dependencies und werden ueber `npm install`
+wiederhergestellt. Der kurze PlatformIO-Core-Pfad vermeidet Windows-
+Pfadlaengenprobleme mit Arduino-Mbed-Paketen.
 
 ```powershell
-& 'C:\Users\mosei\AppData\Local\Programs\Python\Python312\python.exe' -m pip install --upgrade platformio
-$env:PLATFORMIO_CORE_DIR=Join-Path $env:USERPROFILE '.platformio-luefter'
-$env:PATH='C:\msys64\mingw64\bin;' + $env:PATH
-& C:\msys64\mingw64\bin\npm.cmd install
+$pythonScripts = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\Scripts'
+$env:PATH = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$pythonScripts;$env:PATH"
+$env:PLATFORMIO_CORE_DIR = 'C:\pio-luefter'
+python -m pip install --upgrade platformio
+npm install
 ```
 
 ### 2. Firmware bauen
 
 ```powershell
-$env:PLATFORMIO_CORE_DIR=Join-Path $env:USERPROFILE '.platformio-luefter'
+$env:PLATFORMIO_CORE_DIR = 'C:\pio-luefter'
 platformio run -e pico
 ```
 
 ### 3. Native Tests ausfuehren
 
 ```powershell
-$env:PLATFORMIO_CORE_DIR=Join-Path $env:USERPROFILE '.platformio-luefter'
+$env:PLATFORMIO_CORE_DIR = 'C:\pio-luefter'
 platformio test -e native
 ```
 
 ### 4. Quality Checks ausfuehren
 
 ```powershell
-$env:PLATFORMIO_CORE_DIR=Join-Path $env:USERPROFILE '.platformio-luefter'
+$env:PLATFORMIO_CORE_DIR = 'C:\pio-luefter'
 powershell -ExecutionPolicy Bypass -File .\tools\run_quality_checks.ps1
 ```
 
@@ -524,14 +576,26 @@ Firmware-Release-Abnahme mit Artefakt-Hash:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -NoHardware
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -SerialPort COMx -ExpectedDeviceId 1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -SerialPort COMx -ExpectedDeviceId 1 -RequireLogicAnalyzer
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\modbus_rtu_acceptance.ps1 -RtuPort COMx -UsbPort COM10 -DeviceId 1
 ```
 
 Der No-Hardware-Modus prueft Hard-Gate, Pico-UF2, SHA256 und Doku-Safety. Der
 Hardware-Modus prueft zusaetzlich `DIAG?`, `FAULT?`, `SELFTEST?`, Modbus
-`0..27`, Diagnose-Register `17..22`, Grad-/StallGuard-Register,
+`0..35`, Diagnose-Register `17..22`, Grad-/StallGuard-/Homing-/Motor-Register,
 Illegal-Address-Exceptions und
 Broadcast-Stille. Mit `-RequireLogicAnalyzer` muss auch die sigrok-Analyse ohne
 `FAIL:`-Zeile laufen.
+
+Der dedizierte Modbus-RTU-Acceptance-Test braucht einen zweiten COM-Port als
+USB-RS485-Master auf dem A/B-Bus. Der Pico-USB-Port (`COM10` im Beispiel) ist
+nur fuer `DIAG?`, `FAULT?` und `SELFTEST?`; echte RTU-Frames laufen auf GP0/GP1
+ueber den RS485-Transceiver. Ohne zweiten Adapter kann der Skript-Selbsttest
+laufen, aber kein Live-RTU-Test:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test_modbus_rtu_acceptance.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\modbus_rtu_acceptance.ps1 -PrintOnly -RtuPort COMx -DeviceId 1
+```
 
 Release-Artefakte:
 
@@ -539,6 +603,7 @@ Release-Artefakte:
 artifacts/release/firmware/firmware.uf2
 artifacts/release/firmware/firmware.uf2.sha256
 artifacts/release/firmware/acceptance-report.md
+artifacts/release/modbus-rtu/modbus-rtu-report.md
 ```
 
 ### 5. Geraete-ID setzen
@@ -648,7 +713,7 @@ Quellen:
 ## Tests und Checks
 
 ```powershell
-$env:PLATFORMIO_CORE_DIR=Join-Path $env:USERPROFILE '.platformio-luefter'
+$env:PLATFORMIO_CORE_DIR = 'C:\pio-luefter'
 platformio test -e native
 platformio run -e pico
 platformio check -e native --skip-packages

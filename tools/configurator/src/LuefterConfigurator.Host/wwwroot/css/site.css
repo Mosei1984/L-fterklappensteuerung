@@ -300,6 +300,16 @@ button:active {
   border-color: #9fb2bf;
 }
 
+.danger-action {
+  border-color: #f1b8b3;
+  color: var(--danger);
+}
+
+.danger-action:hover {
+  background: #fff5f5;
+  border-color: #dc8c84;
+}
+
 .compact {
   min-height: 34px;
 }
@@ -723,6 +733,23 @@ input[type="range"] {
   padding: 0;
 }
 
+.checkbox-field {
+  align-items: center;
+  align-self: end;
+  border: 1px solid #ccd7df;
+  border-radius: 7px;
+  display: flex;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 12px;
+}
+
+.checkbox-field input[type="checkbox"] {
+  accent-color: var(--accent);
+  min-height: 18px;
+  width: 18px;
+}
+
 .device-list,
 .command-grid,
 .detail-list,
@@ -944,6 +971,43 @@ input[type="range"] {
   font-size: 0.86rem;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.shutdown-dialog {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 24px 72px rgba(23, 32, 38, 0.22);
+  color: var(--text);
+  max-width: min(460px, calc(100vw - 28px));
+  padding: 0;
+  width: 100%;
+}
+
+.shutdown-dialog::backdrop {
+  background: rgba(23, 32, 38, 0.42);
+}
+
+.shutdown-dialog form {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+}
+
+.shutdown-dialog h2 {
+  font-size: 1.22rem;
+}
+
+.shutdown-dialog p:not(.section-kicker) {
+  color: var(--muted);
+  margin-bottom: 0;
+}
+
+.shutdown-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 4px;
 }
 
 .toast {

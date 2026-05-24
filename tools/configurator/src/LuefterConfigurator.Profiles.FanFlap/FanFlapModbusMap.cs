@@ -33,6 +33,14 @@ public static class FanFlapModbusMap
         RegisterDefinition.Holding(24, "current_degree", RegisterValueType.Unsigned16, RegisterAccess.ReadOnly, "Current angle 0 open to 90 closed"),
         RegisterDefinition.Holding(25, "soft_min_degree", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Minimum allowed angle in degrees"),
         RegisterDefinition.Holding(26, "soft_max_degree", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Maximum allowed angle in degrees"),
-        RegisterDefinition.Holding(27, "stallguard_threshold", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Persisted TMC2209 SGTHRS threshold 0..255")
+        RegisterDefinition.Holding(27, "stallguard_threshold", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Persisted TMC2209 SGTHRS threshold 0..255"),
+        RegisterDefinition.Holding(28, "home_min_switch", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Logical min endpoint switch: 0 min input, 1 max input"),
+        RegisterDefinition.Holding(29, "home_max_switch", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Logical max endpoint switch: 0 min input, 1 max input"),
+        RegisterDefinition.Holding(30, "home_min_direction", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Home-min search direction: 0 negative, 1 positive"),
+        RegisterDefinition.Holding(31, "home_max_direction", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Home-max search direction: 0 negative, 1 positive"),
+        RegisterDefinition.Holding(32, "stepper_direction_inverted", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Invert stepper direction: 0 normal, 1 inverted"),
+        RegisterDefinition.Holding(33, "normal_max_speed_steps_per_second", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Normal movement maximum speed in steps per second"),
+        RegisterDefinition.Holding(34, "homing_max_speed_steps_per_second", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Homing movement maximum speed in steps per second"),
+        RegisterDefinition.Holding(35, "run_current_milliamps", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "TMC2209 run current limit in milliamps")
     ];
 }

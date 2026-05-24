@@ -46,6 +46,10 @@ FanFlapController::FanFlapController(StepperPort& motor, EventSink& events,
                                 ? config.safePositionPermille
                                 : 1000U),
       stallGuardThreshold_(kDefaultStallGuardThreshold),
+      homingConfig_(kDefaultHomingConfig),
+      motorConfig_{static_cast<std::uint16_t>(config.normalMaxSpeed),
+                   static_cast<std::uint16_t>(config.homingMaxSpeed),
+                   kDefaultMotorConfig.runCurrentMilliamps},
       lastFaultReason_(FaultReason::None),
       faultCount_(0U),
       softEndstopsEnabled_(true),
@@ -73,7 +77,7 @@ void FanFlapController::begin() {
   lastFaultReason_ = FaultReason::None;
 
   motor_.setDriverEnabled(true);
-  motor_.setMaxSpeed(config_.normalMaxSpeed);
+  applyNormalMaxSpeed();
   motor_.setAcceleration(config_.acceleration);
   emit(EventId::SystemStarted);
 }
@@ -144,7 +148,7 @@ bool FanFlapController::setDeviceId(const std::uint8_t deviceId) {
 }
 
 std::int32_t FanFlapController::currentPosition() const {
-  return motor_.currentPosition();
+  return logicalPositionFromMotor(motor_.currentPosition());
 }
 
 std::int32_t FanFlapController::maxPosition() const { return maxPosition_; }
@@ -172,6 +176,10 @@ std::uint16_t FanFlapController::safePositionPermille() const {
 std::uint8_t FanFlapController::stallGuardThreshold() const {
   return stallGuardThreshold_;
 }
+
+HomingConfig FanFlapController::homingConfig() const { return homingConfig_; }
+
+MotorConfig FanFlapController::motorConfig() const { return motorConfig_; }
 
 FaultReason FanFlapController::lastFaultReason() const {
   return lastFaultReason_;
@@ -253,6 +261,78 @@ bool FanFlapController::setStallGuardThreshold(const std::uint16_t threshold) {
   return true;
 }
 
+bool FanFlapController::setHomingConfig(const HomingConfig config) {
+  if (!homingConfigCanBeApplied(config)) {
+    emit(EventId::HomingConfigInvalid,
+         static_cast<std::int32_t>(config.minSwitch),
+         static_cast<std::int32_t>(config.maxSwitch), false,
+         static_cast<std::int32_t>(config.minDirection),
+         static_cast<std::int32_t>(config.maxDirection),
+         config.stepperDirectionInverted ? 1 : 0);
+    return false;
+  }
+
+  if ((homingConfig_.minSwitch == config.minSwitch) &&
+      (homingConfig_.maxSwitch == config.maxSwitch) &&
+      (homingConfig_.minDirection == config.minDirection) &&
+      (homingConfig_.maxDirection == config.maxDirection) &&
+      (homingConfig_.stepperDirectionInverted ==
+       config.stepperDirectionInverted)) {
+    return true;
+  }
+
+  const std::int32_t current = currentPosition();
+  const std::int32_t target = targetPosition_;
+  const bool shouldRehome = state_ == ControllerState::Ready;
+  homingConfig_ = config;
+  setLogicalCurrentPosition(current);
+  targetPosition_ = target;
+  if (targetPosition_ != currentPosition()) {
+    moveMotorToLogical(targetPosition_);
+  }
+  emit(EventId::HomingConfigChanged,
+       static_cast<std::int32_t>(homingConfig_.minSwitch),
+       static_cast<std::int32_t>(homingConfig_.maxSwitch), false,
+       static_cast<std::int32_t>(homingConfig_.minDirection),
+       static_cast<std::int32_t>(homingConfig_.maxDirection),
+       homingConfig_.stepperDirectionInverted ? 1 : 0);
+  if (shouldRehome) {
+    resetMotor();
+  }
+  return true;
+}
+
+bool FanFlapController::setMotorConfig(const MotorConfig config) {
+  if (!motorConfigValuesAreValid(config)) {
+    emit(EventId::MotorConfigInvalid, config.normalMaxSpeedStepsPerSecond,
+         config.homingMaxSpeedStepsPerSecond, false,
+         config.runCurrentMilliamps);
+    return false;
+  }
+
+  if ((motorConfig_.normalMaxSpeedStepsPerSecond ==
+       config.normalMaxSpeedStepsPerSecond) &&
+      (motorConfig_.homingMaxSpeedStepsPerSecond ==
+       config.homingMaxSpeedStepsPerSecond) &&
+      (motorConfig_.runCurrentMilliamps == config.runCurrentMilliamps)) {
+    return true;
+  }
+
+  motorConfig_ = config;
+  if ((state_ == ControllerState::HomingMin) ||
+      (state_ == ControllerState::HomingMax) ||
+      (state_ == ControllerState::ServiceMotorTest)) {
+    applyHomingMaxSpeed();
+  } else {
+    applyNormalMaxSpeed();
+  }
+  emit(EventId::MotorConfigChanged,
+       motorConfig_.normalMaxSpeedStepsPerSecond,
+       motorConfig_.homingMaxSpeedStepsPerSecond, false,
+       motorConfig_.runCurrentMilliamps);
+  return true;
+}
+
 std::int32_t FanFlapController::moveTo(const std::int32_t position) {
   std::int32_t acceptedPosition = position;
 
@@ -266,9 +346,10 @@ std::int32_t FanFlapController::moveTo(const std::int32_t position) {
     }
   }
 
-  motor_.setDriverEnabled(true);
-  motor_.moveTo(acceptedPosition);
   targetPosition_ = acceptedPosition;
+  applyNormalMaxSpeed();
+  motor_.setDriverEnabled(true);
+  moveMotorToLogical(targetPosition_);
   beginMotionSupervision();
   beginValveFreeCheck();
   return acceptedPosition;
@@ -336,6 +417,22 @@ void FanFlapController::handleCommandText(const TextView& text) {
     emit(EventId::StallGuardThresholdReported, stallGuardThreshold_);
   } else if (readArgument(text, "STALLGUARD", argument)) {
     handleStallGuardThresholdCommand(argument);
+  } else if (equals(text, "HOMECFG?")) {
+    emit(EventId::HomingConfigReported,
+         static_cast<std::int32_t>(homingConfig_.minSwitch),
+         static_cast<std::int32_t>(homingConfig_.maxSwitch), false,
+         static_cast<std::int32_t>(homingConfig_.minDirection),
+         static_cast<std::int32_t>(homingConfig_.maxDirection),
+         homingConfig_.stepperDirectionInverted ? 1 : 0);
+  } else if (readArgument(text, "HOMECFG", argument)) {
+    handleHomingConfigCommand(argument);
+  } else if (equals(text, "MOTORCFG?")) {
+    emit(EventId::MotorConfigReported,
+         motorConfig_.normalMaxSpeedStepsPerSecond,
+         motorConfig_.homingMaxSpeedStepsPerSecond, false,
+         motorConfig_.runCurrentMilliamps);
+  } else if (readArgument(text, "MOTORCFG", argument)) {
+    handleMotorConfigCommand(argument);
   } else if (readArgument(text, "MOTORTEST", argument)) {
     handleMotorTestCommand(argument);
   } else if (equals(text, "FAULT?")) {
@@ -397,7 +494,7 @@ void FanFlapController::handleMotorTestCommand(const TextView& argument) {
 
   motor_.stop();
   motor_.setDriverEnabled(true);
-  motor_.setMaxSpeed(config_.homingMaxSpeed);
+  applyHomingMaxSpeed();
   motor_.setCurrentPosition(0);
   motor_.moveTo(steps);
   targetPosition_ = steps;
@@ -409,7 +506,7 @@ void FanFlapController::handleMotorTestCommand(const TextView& argument) {
 }
 
 void FanFlapController::handleInitState(const DigitalInputs& inputs) {
-  if (inputs.minSwitchActive && inputs.maxSwitchActive) {
+  if (logicalMinSwitchActive(inputs) && logicalMaxSwitchActive(inputs)) {
     enterError(FaultReason::BothEndstopsActiveAtBoot);
     return;
   }
@@ -421,10 +518,10 @@ void FanFlapController::handleHomingMinState(const DigitalInputs& inputs,
                                              const std::uint32_t nowMs) {
   motor_.run();
 
-  if (!inputs.minSwitchActive) {
+  if (!logicalMinSwitchActive(inputs)) {
     if (inputs.stallGuardActive && stallGuardTravelArmed()) {
       motor_.stop();
-      motor_.setCurrentPosition(0);
+      setLogicalCurrentPosition(0);
       stateTimestampMs_ = nowMs;
       state_ = ControllerState::HomingMinSettling;
       emit(EventId::SensorlessMinPositionReached);
@@ -439,7 +536,7 @@ void FanFlapController::handleHomingMinState(const DigitalInputs& inputs,
   }
 
   motor_.stop();
-  motor_.setCurrentPosition(0);
+  setLogicalCurrentPosition(0);
   stateTimestampMs_ = nowMs;
   state_ = ControllerState::HomingMinSettling;
   emit(EventId::MinPositionReached);
@@ -456,10 +553,11 @@ void FanFlapController::handleHomingMaxState(const DigitalInputs& inputs,
                                              const std::uint32_t nowMs) {
   motor_.run();
 
-  if (!inputs.maxSwitchActive) {
+  if (!logicalMaxSwitchActive(inputs)) {
     if (inputs.stallGuardActive && stallGuardTravelArmed()) {
       motor_.stop();
-      maxPosition_ = motor_.currentPosition();
+      maxPosition_ = absoluteDistance(currentPosition(), homingStartPosition_);
+      setLogicalCurrentPosition(maxPosition_);
       emit(EventId::SensorlessMaxPositionReached, maxPosition_);
 
       if (maxPosition_ <= 0) {
@@ -484,7 +582,8 @@ void FanFlapController::handleHomingMaxState(const DigitalInputs& inputs,
   }
 
   motor_.stop();
-  maxPosition_ = motor_.currentPosition();
+  maxPosition_ = absoluteDistance(currentPosition(), homingStartPosition_);
+  setLogicalCurrentPosition(maxPosition_);
   emit(EventId::MaxPositionReached, maxPosition_);
 
   if (maxPosition_ <= 0) {
@@ -560,9 +659,9 @@ void FanFlapController::handleAutoRehomeState() {
 void FanFlapController::handleServiceMotorTestState(const std::uint32_t nowMs) {
   motor_.run();
 
-  if (currentPosition() == targetPosition_) {
+  if (motor_.currentPosition() == targetPosition_) {
     motor_.stop();
-    motor_.setCurrentPosition(currentPosition());
+    motor_.setCurrentPosition(motor_.currentPosition());
     motor_.setDriverEnabled(false);
     errorTimestampMs_ = nowMs;
     state_ = ControllerState::WaitReset;
@@ -575,8 +674,10 @@ void FanFlapController::startHomingMin() {
   motionSupervisionActive_ = false;
   moveConfirmationPending_ = false;
   homingStartPosition_ = currentPosition();
-  motor_.setMaxSpeed(config_.homingMaxSpeed);
-  motor_.moveTo(-homingTravelSteps());
+  applyHomingMaxSpeed();
+  motor_.moveTo(motor_.currentPosition() +
+                (rawDirectionSign(homingConfig_.minDirection) *
+                 homingTravelSteps()));
   state_ = ControllerState::HomingMin;
   emit(EventId::HomingStarted);
 }
@@ -586,8 +687,10 @@ void FanFlapController::startHomingMax() {
   motionSupervisionActive_ = false;
   moveConfirmationPending_ = false;
   homingStartPosition_ = currentPosition();
-  motor_.setMaxSpeed(config_.homingMaxSpeed);
-  motor_.moveTo(homingTravelSteps());
+  applyHomingMaxSpeed();
+  motor_.moveTo(motor_.currentPosition() +
+                (rawDirectionSign(homingConfig_.maxDirection) *
+                 homingTravelSteps()));
   state_ = ControllerState::HomingMax;
 }
 
@@ -632,11 +735,13 @@ bool FanFlapController::requireReady() {
 }
 
 bool FanFlapController::homingMinTravelExceeded() const {
-  return currentPosition() <= -homingTravelSteps();
+  return absoluteDistance(currentPosition(), homingStartPosition_) >=
+         homingTravelSteps();
 }
 
 bool FanFlapController::homingMaxTravelExceeded() const {
-  return currentPosition() >= homingTravelSteps();
+  return absoluteDistance(currentPosition(), homingStartPosition_) >=
+         homingTravelSteps();
 }
 
 bool FanFlapController::stallGuardTravelArmed() const {
@@ -942,6 +1047,125 @@ void FanFlapController::handleStallGuardThresholdCommand(
       setStallGuardThreshold(static_cast<std::uint16_t>(value)));
 }
 
+void FanFlapController::handleHomingConfigCommand(const TextView& argument) {
+  HomingConfig config{};
+
+  if (!parseHomingConfig(argument, config)) {
+    emit(EventId::HomingConfigInvalid);
+    return;
+  }
+
+  static_cast<void>(setHomingConfig(config));
+}
+
+void FanFlapController::handleMotorConfigCommand(const TextView& argument) {
+  MotorConfig config{};
+
+  if (!parseMotorConfig(argument, config)) {
+    emit(EventId::MotorConfigInvalid);
+    return;
+  }
+
+  static_cast<void>(setMotorConfig(config));
+}
+
+bool FanFlapController::parseHomingConfig(const TextView& argument,
+                                          HomingConfig& config) const {
+  const TextView text = trim(argument);
+  std::size_t tokenStart = 0U;
+  std::uint8_t values[5]{};
+
+  for (std::size_t tokenIndex = 0U; tokenIndex < 5U; ++tokenIndex) {
+    while ((tokenStart < text.length) && isSpace(charAt(text, tokenStart))) {
+      ++tokenStart;
+    }
+
+    if (tokenStart >= text.length) {
+      return false;
+    }
+
+    std::size_t tokenEnd = tokenStart;
+    while ((tokenEnd < text.length) && !isSpace(charAt(text, tokenEnd))) {
+      ++tokenEnd;
+    }
+
+    std::int32_t parsedValue = 0;
+    if (!parseInt32(TextView{text.data, text.offset + tokenStart,
+                             tokenEnd - tokenStart},
+                    parsedValue) ||
+        (parsedValue < 0) || (parsedValue > 1)) {
+      return false;
+    }
+
+    values[tokenIndex] = static_cast<std::uint8_t>(parsedValue);
+    tokenStart = tokenEnd;
+  }
+
+  while ((tokenStart < text.length) && isSpace(charAt(text, tokenStart))) {
+    ++tokenStart;
+  }
+
+  if (tokenStart != text.length) {
+    return false;
+  }
+
+  config = HomingConfig{
+      values[0] == 0U ? HomingSwitch::MinInput : HomingSwitch::MaxInput,
+      values[1] == 0U ? HomingSwitch::MinInput : HomingSwitch::MaxInput,
+      values[2] == 0U ? HomingDirection::Negative
+                      : HomingDirection::Positive,
+      values[3] == 0U ? HomingDirection::Negative
+                      : HomingDirection::Positive,
+      values[4] != 0U};
+  return homingConfigValuesAreValid(config);
+}
+
+bool FanFlapController::parseMotorConfig(const TextView& argument,
+                                         MotorConfig& config) const {
+  const TextView text = trim(argument);
+  std::size_t tokenStart = 0U;
+  std::uint16_t values[3]{};
+
+  for (std::size_t tokenIndex = 0U; tokenIndex < 3U; ++tokenIndex) {
+    while ((tokenStart < text.length) && isSpace(charAt(text, tokenStart))) {
+      ++tokenStart;
+    }
+
+    if (tokenStart >= text.length) {
+      return false;
+    }
+
+    std::size_t tokenEnd = tokenStart;
+    while ((tokenEnd < text.length) && !isSpace(charAt(text, tokenEnd))) {
+      ++tokenEnd;
+    }
+
+    std::int32_t parsedValue = 0;
+    if (!parseInt32(TextView{text.data, text.offset + tokenStart,
+                             tokenEnd - tokenStart},
+                    parsedValue) ||
+        (parsedValue < 0) ||
+        (parsedValue > static_cast<std::int32_t>(
+                           std::numeric_limits<std::uint16_t>::max()))) {
+      return false;
+    }
+
+    values[tokenIndex] = static_cast<std::uint16_t>(parsedValue);
+    tokenStart = tokenEnd;
+  }
+
+  while ((tokenStart < text.length) && isSpace(charAt(text, tokenStart))) {
+    ++tokenStart;
+  }
+
+  if (tokenStart != text.length) {
+    return false;
+  }
+
+  config = MotorConfig{values[0], values[1], values[2]};
+  return motorConfigValuesAreValid(config);
+}
+
 bool FanFlapController::setSoftEndstopsDegrees(
     const std::uint16_t minDegree, const std::uint16_t maxDegree) {
   if ((minDegree > kMaxDegree) || (maxDegree > kMaxDegree) ||
@@ -954,15 +1178,25 @@ bool FanFlapController::setSoftEndstopsDegrees(
                                           positionFromDegree(minDegree)});
 }
 
+void FanFlapController::applyNormalMaxSpeed() {
+  motor_.setMaxSpeed(
+      static_cast<float>(motorConfig_.normalMaxSpeedStepsPerSecond));
+}
+
+void FanFlapController::applyHomingMaxSpeed() {
+  motor_.setMaxSpeed(
+      static_cast<float>(motorConfig_.homingMaxSpeedStepsPerSecond));
+}
+
 FaultReason FanFlapController::unexpectedSwitchReason(
     const DigitalInputs& inputs) const {
-  const float currentSpeed = motor_.speed();
+  const float currentSpeed = logicalSpeed();
 
-  if (inputs.minSwitchActive && (currentSpeed > 0.0F)) {
+  if (logicalMinSwitchActive(inputs) && (currentSpeed > 0.0F)) {
     return FaultReason::UnexpectedMinSwitch;
   }
 
-  if (inputs.maxSwitchActive && (currentSpeed < 0.0F)) {
+  if (logicalMaxSwitchActive(inputs) && (currentSpeed < 0.0F)) {
     return FaultReason::UnexpectedMaxSwitch;
   }
 
@@ -1027,6 +1261,71 @@ std::uint16_t FanFlapController::degreeFromPosition(
   return static_cast<std::uint16_t>(
       (static_cast<std::int64_t>(maxPosition_ - position) * kMaxDegree) /
       maxPosition_);
+}
+
+bool FanFlapController::logicalMinSwitchActive(
+    const DigitalInputs& inputs) const {
+  return homingConfig_.minSwitch == HomingSwitch::MinInput
+             ? inputs.minSwitchActive
+             : inputs.maxSwitchActive;
+}
+
+bool FanFlapController::logicalMaxSwitchActive(
+    const DigitalInputs& inputs) const {
+  return homingConfig_.maxSwitch == HomingSwitch::MinInput
+             ? inputs.minSwitchActive
+             : inputs.maxSwitchActive;
+}
+
+std::int32_t FanFlapController::logicalPositionFromMotor(
+    const std::int32_t position) const {
+  return logicalAxisSign() * position;
+}
+
+std::int32_t FanFlapController::motorPositionFromLogical(
+    const std::int32_t position) const {
+  return logicalAxisSign() * position;
+}
+
+float FanFlapController::logicalSpeed() const {
+  return static_cast<float>(logicalAxisSign()) * motor_.speed();
+}
+
+std::int32_t FanFlapController::directionSign(
+    const HomingDirection direction) const {
+  return direction == HomingDirection::Negative ? -1 : 1;
+}
+
+std::int32_t FanFlapController::rawDirectionSign(
+    const HomingDirection direction) const {
+  const std::int32_t invertSign =
+      homingConfig_.stepperDirectionInverted ? -1 : 1;
+  return directionSign(direction) * invertSign;
+}
+
+std::int32_t FanFlapController::logicalAxisSign() const {
+  return rawDirectionSign(homingConfig_.maxDirection);
+}
+
+void FanFlapController::setLogicalCurrentPosition(
+    const std::int32_t position) {
+  motor_.setCurrentPosition(motorPositionFromLogical(position));
+}
+
+void FanFlapController::moveMotorToLogical(const std::int32_t position) {
+  motor_.moveTo(motorPositionFromLogical(position));
+}
+
+bool FanFlapController::homingConfigCanBeApplied(
+    const HomingConfig config) const {
+  if (!homingConfigValuesAreValid(config)) {
+    return false;
+  }
+
+  return (state_ == ControllerState::Init) ||
+         (state_ == ControllerState::Ready) ||
+         (state_ == ControllerState::ErrorDetected) ||
+         (state_ == ControllerState::WaitReset);
 }
 
 FanFlapController::TextView FanFlapController::trim(const char* const text) {

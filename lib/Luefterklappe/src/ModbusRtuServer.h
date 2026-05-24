@@ -44,7 +44,15 @@ enum class ModbusRegister : std::uint16_t {
   CurrentDegree = 24U,
   SoftMinDegree = 25U,
   SoftMaxDegree = 26U,
-  StallGuardThreshold = 27U
+  StallGuardThreshold = 27U,
+  HomeMinSwitch = 28U,
+  HomeMaxSwitch = 29U,
+  HomeMinDirection = 30U,
+  HomeMaxDirection = 31U,
+  StepperDirectionInverted = 32U,
+  NormalMaxSpeed = 33U,
+  HomingMaxSpeed = 34U,
+  RunCurrentMilliamps = 35U
 };
 
 enum class ModbusCommand : std::uint16_t {
@@ -79,7 +87,7 @@ class ModbusRtuServer {
     std::uint8_t exceptionCode;
   };
 
-  static constexpr std::size_t kMaxFrameSize = 64U;
+  static constexpr std::size_t kMaxFrameSize = 96U;
   static constexpr std::size_t kFixedRequestSize = 8U;
   static constexpr std::uint8_t kReadHoldingRegisters = 0x03U;
   static constexpr std::uint8_t kWriteSingleRegister = 0x06U;

@@ -30,14 +30,22 @@ if (builder.Environment.IsEnvironment("Testing"))
     builder.Services.AddSingleton<IControllerCommandClient, OfflineControllerCommandClient>();
     builder.Services.AddSingleton<IFirmwareStatusProvider, OfflineFirmwareStatusProvider>();
     builder.Services.AddSingleton<IFirmwareFlasher, OfflineFirmwareFlasher>();
+    builder.Services.AddSingleton<IControllerConnectionCloser, NoopControllerConnectionCloser>();
+    builder.Services.AddSingleton<IConfiguratorShutdown, NoopConfiguratorShutdown>();
 }
 else
 {
-    builder.Services.AddSingleton<IControllerDiscovery, SystemSerialControllerDiscovery>();
-    builder.Services.AddSingleton<IControllerCommandClient, SystemSerialControllerCommandClient>();
+    builder.Services.AddSingleton<SystemSerialConnectionCloser>();
+    builder.Services.AddSingleton<IControllerConnectionCloser>(serviceProvider =>
+        serviceProvider.GetRequiredService<SystemSerialConnectionCloser>());
+    builder.Services.AddSingleton<IControllerDiscovery>(serviceProvider =>
+        new SystemSerialControllerDiscovery(serviceProvider.GetRequiredService<SystemSerialConnectionCloser>()));
+    builder.Services.AddSingleton<IControllerCommandClient>(serviceProvider =>
+        new SystemSerialControllerCommandClient(serviceProvider.GetRequiredService<SystemSerialConnectionCloser>()));
     builder.Services.AddSingleton(new Uf2DriveDetector());
     builder.Services.AddSingleton<IFirmwareStatusProvider, Uf2FirmwareStatusProvider>();
     builder.Services.AddSingleton<IFirmwareFlasher, PicoUf2FirmwareUpdater>();
+    builder.Services.AddSingleton<IConfiguratorShutdown, HostConfiguratorShutdown>();
 }
 
 builder.Services.AddSingleton<IHomeAutomationExportAdapter, LoxoneExportAdapter>();
@@ -62,6 +70,24 @@ app.UseStaticFiles();
 app.UseRouting();
 app.MapRazorPages();
 app.MapGet("/api/health", () => Results.Ok(new { status = "ok" }));
+app.MapPost("/api/app/serial/close", (IControllerConnectionCloser connections) =>
+{
+    connections.CloseActiveConnections();
+    return Results.Ok(new { message = "Serial-Verbindungen beendet." });
+});
+app.MapPost("/api/app/shutdown", (
+    HttpResponse response,
+    IConfiguratorShutdown shutdown,
+    IControllerConnectionCloser connections) =>
+{
+    connections.CloseActiveConnections();
+    response.OnCompleted(() =>
+    {
+        shutdown.RequestShutdown();
+        return Task.CompletedTask;
+    });
+    return Results.Ok(new { message = "Konfigurator wird beendet." });
+});
 app.MapGet("/api/controllers/state", (ConfiguratorService service) => Results.Ok(service.GetSnapshot()));
 app.MapPost("/api/controllers/scan", async (ConfiguratorService service, CancellationToken cancellationToken)
     => Results.Ok(await service.ScanAsync(cancellationToken)));
@@ -198,4 +224,24 @@ static bool IsPathInsideDirectory(string filePath, string directoryPath)
 
 public partial class Program
 {
+}
+
+internal interface IConfiguratorShutdown
+{
+    void RequestShutdown();
+}
+
+internal sealed class NoopConfiguratorShutdown : IConfiguratorShutdown
+{
+    public void RequestShutdown()
+    {
+    }
+}
+
+internal sealed class HostConfiguratorShutdown(IHostApplicationLifetime lifetime) : IConfiguratorShutdown
+{
+    public void RequestShutdown()
+    {
+        lifetime.StopApplication();
+    }
 }

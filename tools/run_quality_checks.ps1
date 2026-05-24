@@ -9,6 +9,18 @@ if ((Test-Path $mingwBin) -and (($env:PATH -split ';') -notcontains $mingwBin)) 
   $env:PATH = "$mingwBin;$env:PATH"
 }
 
+$pythonScriptCandidates = @(
+  (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\Scripts'),
+  (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\Scripts'),
+  'C:\Python312\Scripts',
+  'C:\Python311\Scripts'
+)
+foreach ($pythonScripts in $pythonScriptCandidates) {
+  if ((Test-Path $pythonScripts) -and (($env:PATH -split ';') -notcontains $pythonScripts)) {
+    $env:PATH = "$pythonScripts;$env:PATH"
+  }
+}
+
 function Invoke-QualityStep {
   param(
     [Parameter(Mandatory = $true)]
@@ -27,6 +39,10 @@ function Invoke-QualityStep {
 
 Invoke-QualityStep "Native unit tests" {
   platformio test -e native
+}
+
+Invoke-QualityStep "Modbus RTU acceptance script self-test" {
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test_modbus_rtu_acceptance.ps1
 }
 
 Invoke-QualityStep "Pico firmware build" {

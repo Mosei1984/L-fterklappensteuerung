@@ -18,6 +18,31 @@ when joining the project.
   `tools/configurator/README.md`, `tools/la/README.md`
 - Agent guardrails: `tools/agent-hooks/luefter_repo_hook.ps1`
 
+## Fresh clone bootstrap
+
+Recommended Windows setup for a new PC or a new agent session:
+
+```powershell
+git clone https://github.com/Mosei1984/L-fterklappensteuerung.git
+cd .\L-fterklappensteuerung
+
+$pythonScripts = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\Scripts'
+$env:PATH = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;$pythonScripts;$env:PATH"
+$env:PLATFORMIO_CORE_DIR = 'C:\pio-luefter'
+New-Item -ItemType Directory -Force -Path .\.dotnet-cli-home, .\.nuget | Out-Null
+$env:DOTNET_CLI_HOME = (Resolve-Path .\.dotnet-cli-home).Path
+$env:NUGET_PACKAGES = (Resolve-Path .\.nuget).Path
+python -m pip install --upgrade pip platformio
+npm install
+dotnet restore .\tools\configurator\LuefterConfigurator.sln --ignore-failed-sources -p:NuGetAudit=false
+powershell -ExecutionPolicy Bypass -File .\tools\run_quality_checks.ps1
+```
+
+Use Visual Studio or VS Code with `tools/configurator/LuefterConfigurator.sln`
+as the default solution. If no global .NET SDK is installed, place a local SDK
+under `%USERPROFILE%\.dotnet8` or adjust `DOTNET_ROOT` before running the
+configurator commands below.
+
 ## Quality gate
 
 Run the fast project gate during normal development:
@@ -25,18 +50,19 @@ Run the fast project gate during normal development:
 Command path for scripts and tests: `tools/run_quality_checks.ps1`.
 
 ```powershell
-$env:PATH='C:\msys64\mingw64\bin;C:\msys64\usr\bin;C:\Users\mosei\AppData\Local\Programs\Python\Python312\Scripts;' + $env:PATH
+$pythonScripts = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\Scripts'
+$env:PATH="C:\msys64\mingw64\bin;C:\msys64\usr\bin;$pythonScripts;$env:PATH"
 $env:PLATFORMIO_CORE_DIR='C:\pio-luefter'
 powershell -ExecutionPolicy Bypass -File .\tools\run_quality_checks.ps1
 ```
 
 Expected current coverage:
 
-- Firmware native tests: 73 passing tests.
+- Firmware native tests: 95 passing tests.
 - Pico firmware build: `pico` environment succeeds.
 - PlatformIO clang-tidy/cppcheck: native and pico pass.
 - Standalone cppcheck/MISRA addon path runs.
-- Configurator tests: 65 passing tests.
+- Configurator tests: 77 passing tests.
 
 Run the hard all-functions gate before push, release, installer changes or
 completion claims:
@@ -61,16 +87,17 @@ with `npm run diagrams` when diagram sources change, then run
 Run tests only:
 
 ```powershell
+New-Item -ItemType Directory -Force -Path .\.dotnet-cli-home | Out-Null
 $env:DOTNET_CLI_HOME=(Resolve-Path .\.dotnet-cli-home).Path
-& 'C:\Users\mosei\.dotnet8\dotnet.exe' test .\tools\configurator\LuefterConfigurator.sln --no-restore
+dotnet test .\tools\configurator\LuefterConfigurator.sln --no-restore
 ```
 
 Start local UI:
 
 ```powershell
-$env:DOTNET_ROOT='C:\Users\mosei\.dotnet8'
+New-Item -ItemType Directory -Force -Path .\.dotnet-cli-home | Out-Null
 $env:DOTNET_CLI_HOME=(Resolve-Path .\.dotnet-cli-home).Path
-& 'C:\Users\mosei\.dotnet8\dotnet.exe' run --project .\tools\configurator\src\LuefterConfigurator.Host
+dotnet run --project .\tools\configurator\src\LuefterConfigurator.Host
 ```
 
 Open: <http://127.0.0.1:5184>
@@ -97,12 +124,13 @@ artifacts/configurator-installer/win-x64/Luefterklappen-Konfigurator-win-x64.zip
 - Safe position is configurable in `0..1000` permille and persisted with CRC.
 - Position commands and limits can use steps, `0..1000` permille or `0..90`
   degrees; `0` degrees is open/horizontal and `90` degrees is closed/vertical.
-- Persistent device ID, safe position and StallGuard threshold use a two-sector
-  flash journal with generation and CRC validation.
+- Persistent device ID, safe position, StallGuard threshold, homing
+  configuration and motor parameters use a two-sector flash journal with
+  generation and CRC validation.
 - Diagnostic Modbus registers `17..22` are read-only and append the stable
   fault reason, fault count, settings status, TMC health, boot reason and
-  firmware protocol version `3`; degree/StallGuard configuration registers are
-  `23..27`.
+  firmware protocol version `5`; degree/StallGuard/Homing/Motor configuration
+  registers are `23..35`.
 - Service text diagnostics are `DIAG?`, `FAULT?` and non-moving `SELFTEST?`.
 - `REFRESH` / Modbus command `5` is the preferred recovery after a controller
   fault: it stops, clears the fault path, and rehomes without rebooting the MCU.
@@ -114,12 +142,14 @@ Run firmware release acceptance before a release handoff:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -NoHardware
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -SerialPort COMx -ExpectedDeviceId 1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\firmware_release_check.ps1 -SerialPort COMx -ExpectedDeviceId 1 -RequireLogicAnalyzer
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\modbus_rtu_acceptance.ps1 -RtuPort COMx -UsbPort COM10 -DeviceId 1
 ```
 
 Inspect `artifacts/release/firmware/acceptance-report.md` and
 `artifacts/quality/hard-all-functions/summary.md` before claiming release
-readiness. Full field acceptance still requires assembled motor, TMC2209,
-endstops, RS485 and logic analyzer.
+readiness. Inspect `artifacts/release/modbus-rtu/modbus-rtu-report.md` after
+dedicated RTU runs. Full field acceptance still requires assembled motor,
+TMC2209, endstops, RS485, a USB-RS485 RTU master adapter and logic analyzer.
 
 ## Git and generated files
 
@@ -141,7 +171,8 @@ configurator should guide normal users through Loxone setup first:
 1. Prepare Loxone/Modbus TCP settings.
 2. Detect Pico over USB.
 3. Flash UF2 if needed.
-4. Write ID, safe position, degree limits and StallGuard threshold.
+4. Write ID, safe position, degree limits, StallGuard threshold and motor
+   speed/current limits.
 5. Generate and download Loxone XML/JSON/Markdown.
 6. Run final status and gateway checks.
 
