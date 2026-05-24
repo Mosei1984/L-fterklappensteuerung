@@ -6,8 +6,8 @@
 namespace luefterklappe {
 namespace firmware {
 
-constexpr std::uint8_t kStepPin = 2U;
-constexpr std::uint8_t kDirPin = 3U;
+constexpr std::uint8_t kStepPin = 3U;
+constexpr std::uint8_t kDirPin = 2U;
 constexpr std::uint8_t kEnablePin = 7U;
 constexpr std::uint8_t kMinSwitchPin = 5U;
 constexpr std::uint8_t kMaxSwitchPin = 6U;

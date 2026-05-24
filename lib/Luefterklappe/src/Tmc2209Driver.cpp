@@ -17,9 +17,15 @@ void Tmc2209Driver::initialize() {
   writeRegister(RegisterWrite{config_.holdRunCurrentRegister,
                               config_.holdRunCurrentValue});
   writeRegister(
+      RegisterWrite{config_.powerDownRegister, config_.powerDownValue});
+  writeRegister(
       RegisterWrite{config_.chopConfigRegister, config_.chopConfigValue});
+  writeRegister(
+      RegisterWrite{config_.pwmConfigRegister, config_.pwmConfigValue});
   writeRegister(RegisterWrite{config_.stallGuardThresholdRegister,
                               config_.stallGuardThreshold});
+  writeRegister(RegisterWrite{config_.globalStatusRegister,
+                              config_.globalStatusClearValue});
 
   const Event configuredEvent{EventId::TmcConfigured, 0, 0, false};
   events_.onEvent(configuredEvent);
@@ -70,6 +76,7 @@ bool Tmc2209Driver::readRegister(const std::uint8_t registerAddress,
 
   request[kReadDatagramLength - 1U] =
       calculateCrc(request.data(), kReadDatagramLength - 1U);
+  drainReceiveBuffer();
   writeDatagram(request.data(), request.size());
   delay_.delayMilliseconds(config_.responseDelayMs);
 
@@ -104,10 +111,33 @@ bool Tmc2209Driver::readRegister(const std::uint8_t registerAddress,
   return false;
 }
 
+void Tmc2209Driver::drainReceiveBuffer() {
+  std::uint8_t ignoredByte = 0U;
+  std::size_t bytesRead = 0U;
+
+  while ((uart_.available() > 0U) && (bytesRead < kMaxStaleReadBytes)) {
+    if (!uart_.readByte(ignoredByte)) {
+      return;
+    }
+
+    ++bytesRead;
+  }
+}
+
 Tmc2209PollResult Tmc2209Driver::pollStallGuardStatus() {
   std::uint32_t stallGuardResult = 0U;
+  bool readSucceeded = false;
 
-  if (!readRegister(config_.stallGuardResultRegister, stallGuardResult)) {
+  for (std::uint8_t attempt = 0U; attempt < kPollReadAttempts; ++attempt) {
+    if (readRegister(config_.stallGuardResultRegister, stallGuardResult)) {
+      readSucceeded = true;
+      break;
+    }
+
+    delay_.delayMilliseconds(config_.responseDelayMs);
+  }
+
+  if (!readSucceeded) {
     return Tmc2209PollResult::CommunicationError;
   }
 

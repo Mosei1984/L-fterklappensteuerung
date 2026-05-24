@@ -137,7 +137,13 @@ class FakeUart final : public UartPort {
     }
   }
 
-  void flush() override { ++flushCount_; }
+  void flush() override {
+    ++flushCount_;
+    for (std::size_t index = 0U; index < nextFlushReadCount_; ++index) {
+      queueRead(nextFlushRead_[index]);
+    }
+    nextFlushReadCount_ = 0U;
+  }
 
   std::size_t available() const override { return readCount_ - readIndex_; }
 
@@ -158,14 +164,23 @@ class FakeUart final : public UartPort {
     }
   }
 
+  void queueReadOnNextFlush(const std::uint8_t value) {
+    if (nextFlushReadCount_ < kCapacity) {
+      nextFlushRead_[nextFlushReadCount_] = value;
+      ++nextFlushReadCount_;
+    }
+  }
+
   void clearWritten() { writtenCount_ = 0U; }
 
-  static constexpr std::size_t kCapacity = 64U;
+  static constexpr std::size_t kCapacity = 128U;
   std::uint8_t written_[kCapacity]{};
   std::uint8_t read_[kCapacity]{};
+  std::uint8_t nextFlushRead_[kCapacity]{};
   std::size_t writtenCount_{0U};
   std::size_t readCount_{0U};
   std::size_t readIndex_{0U};
+  std::size_t nextFlushReadCount_{0U};
   std::uint32_t flushCount_{0U};
 };
 
@@ -271,9 +286,10 @@ std::uint8_t tmcCrc(const std::uint8_t* const data,
   return crc;
 }
 
-void queueTmcResponse(FakeUart& uart, const std::uint8_t registerAddress,
-                      const std::uint32_t value,
-                      const std::uint8_t sourceAddress = 0x00U) {
+void queueTmcResponseOnNextFlush(FakeUart& uart,
+                                 const std::uint8_t registerAddress,
+                                 const std::uint32_t value,
+                                 const std::uint8_t sourceAddress = 0x00U) {
   std::uint8_t response[8]{
       0x05U,
       sourceAddress,
@@ -287,15 +303,35 @@ void queueTmcResponse(FakeUart& uart, const std::uint8_t registerAddress,
   response[7] = tmcCrc(response, 7U);
 
   for (const std::uint8_t valueByte : response) {
-    uart.queueRead(valueByte);
+    uart.queueReadOnNextFlush(valueByte);
   }
 }
 
-void queueTmcReadEcho(FakeUart& uart, const std::uint8_t registerAddress) {
+void queueTmcReadEchoOnNextFlush(FakeUart& uart,
+                                 const std::uint8_t registerAddress) {
   std::uint8_t request[4]{0x05U, 0x00U, registerAddress, 0U};
   request[3] = tmcCrc(request, 3U);
 
   for (const std::uint8_t valueByte : request) {
+    uart.queueReadOnNextFlush(valueByte);
+  }
+}
+
+void queueTmcWriteEcho(FakeUart& uart, const std::uint8_t registerAddress,
+                       const std::uint32_t value) {
+  std::uint8_t datagram[8]{
+      0x05U,
+      0x00U,
+      static_cast<std::uint8_t>(registerAddress | 0x80U),
+      static_cast<std::uint8_t>((value >> 24U) & 0xFFU),
+      static_cast<std::uint8_t>((value >> 16U) & 0xFFU),
+      static_cast<std::uint8_t>((value >> 8U) & 0xFFU),
+      static_cast<std::uint8_t>(value & 0xFFU),
+      0U};
+
+  datagram[7] = tmcCrc(datagram, 7U);
+
+  for (const std::uint8_t valueByte : datagram) {
     uart.queueRead(valueByte);
   }
 }
@@ -361,8 +397,8 @@ void bringControllerToReady(FanFlapController& controller, FakeStepper& stepper,
 }
 
 void test_pico_pin_mapping_matches_current_tmc_wiring() {
-  TEST_ASSERT_EQUAL_UINT8(2U, luefterklappe::firmware::kStepPin);
-  TEST_ASSERT_EQUAL_UINT8(3U, luefterklappe::firmware::kDirPin);
+  TEST_ASSERT_EQUAL_UINT8(3U, luefterklappe::firmware::kStepPin);
+  TEST_ASSERT_EQUAL_UINT8(2U, luefterklappe::firmware::kDirPin);
   TEST_ASSERT_EQUAL_UINT8(7U, luefterklappe::firmware::kEnablePin);
   TEST_ASSERT_EQUAL_UINT8(8U, luefterklappe::firmware::kTmcUartTxPin);
   TEST_ASSERT_EQUAL_UINT8(9U, luefterklappe::firmware::kTmcUartRxPin);
@@ -665,6 +701,20 @@ void test_homing_uses_stallguard_as_min_endstop_redundancy() {
   TEST_ASSERT_TRUE(events.contains(EventId::SensorlessMinPositionReached));
 }
 
+void test_homing_ignores_stallguard_until_minimum_travel_is_reached() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  controller.begin();
+  controller.tick(kNoInputs, 0U);
+  stepper.position_ = -1;
+  controller.tick(DigitalInputs{false, false, true}, 1U);
+
+  TEST_ASSERT_EQUAL(ControllerState::HomingMin, controller.state());
+  TEST_ASSERT_FALSE(events.contains(EventId::SensorlessMinPositionReached));
+}
+
 void test_homing_uses_stallguard_as_max_endstop_redundancy() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -682,6 +732,22 @@ void test_homing_uses_stallguard_as_max_endstop_redundancy() {
   TEST_ASSERT_EQUAL_INT32(800, controller.maxPosition());
   TEST_ASSERT_EQUAL_INT32(400, controller.targetPosition());
   TEST_ASSERT_TRUE(events.contains(EventId::SensorlessMaxPositionReached));
+}
+
+void test_homing_max_ignores_stallguard_until_minimum_travel_is_reached() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  controller.begin();
+  controller.tick(kNoInputs, 0U);
+  controller.tick(DigitalInputs{true, false, false}, 1U);
+  controller.tick(kNoInputs, 6U);
+  stepper.position_ = 1;
+  controller.tick(DigitalInputs{false, false, true}, 7U);
+
+  TEST_ASSERT_EQUAL(ControllerState::HomingMax, controller.state());
+  TEST_ASSERT_FALSE(events.contains(EventId::SensorlessMaxPositionReached));
 }
 
 void test_invalid_homing_range_enters_fault_state() {
@@ -914,8 +980,11 @@ void test_ready_faults_on_unexpected_switch_and_stall() {
   FanFlapController stalledController(stalledStepper, stalledEvents,
                                       kFastTestConfig);
   bringControllerToReady(stalledController, stalledStepper, stalledEvents);
+  stalledStepper.position_ = 400;
+  stalledController.tick(kNoInputs, 20U);
+  stalledEvents.clear();
 
-  stalledController.tick(DigitalInputs{false, false, true}, 20U);
+  stalledController.tick(DigitalInputs{false, false, true}, 21U);
   TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, stalledController.state());
   TEST_ASSERT_TRUE(stalledEvents.contains(EventId::StallDetected));
 }
@@ -1154,8 +1223,15 @@ void test_move_free_check_faults_when_valve_is_blocked() {
   events.clear();
   controller.tick(DigitalInputs{false, false, true}, 20U);
 
+  TEST_ASSERT_EQUAL(ControllerState::Ready, controller.state());
+  TEST_ASSERT_FALSE(events.contains(EventId::StallDetected));
+
+  controller.tick(DigitalInputs{false, false, true}, 2021U);
+
   TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
-  TEST_ASSERT_TRUE(events.contains(EventId::StallDetected));
+  TEST_ASSERT_EQUAL(
+      static_cast<std::uint16_t>(FaultReason::ValveBlockedDuringFreeCheck),
+      static_cast<std::uint16_t>(controller.lastFaultReason()));
 }
 
 void test_ready_move_faults_when_position_does_not_progress() {
@@ -1989,26 +2065,29 @@ void test_tmc_driver_initializes_and_polls_stall_status() {
   TEST_ASSERT_TRUE(events.contains(EventId::TmcConfigured));
   TEST_ASSERT_EQUAL_UINT32(1U, delay.callCount_);
   TEST_ASSERT_EQUAL_UINT32(10U, delay.lastDelayMs_);
-  TEST_ASSERT_EQUAL_UINT32(4U, uart.flushCount_);
-  TEST_ASSERT_EQUAL_UINT32(32U, uart.writtenCount_);
-  assertTmcWrite(uart, 0U, 0x00U, 0x000001C1UL);
+  TEST_ASSERT_EQUAL_UINT32(7U, uart.flushCount_);
+  TEST_ASSERT_EQUAL_UINT32(56U, uart.writtenCount_);
+  assertTmcWrite(uart, 0U, 0x00U, 0x000001C4UL);
   assertTmcWrite(uart, 8U, 0x10U, 0x00081F10UL);
-  assertTmcWrite(uart, 16U, 0x6CU, 0x14030053UL);
-  assertTmcWrite(uart, 24U, 0x40U, 100U);
+  assertTmcWrite(uart, 16U, 0x11U, 0x00000014UL);
+  assertTmcWrite(uart, 24U, 0x6CU, 0x14030053UL);
+  assertTmcWrite(uart, 32U, 0x70U, 0xC80D0E24UL);
+  assertTmcWrite(uart, 40U, 0x40U, 100U);
+  assertTmcWrite(uart, 48U, 0x01U, 0x00000007UL);
 
   uart.clearWritten();
   TEST_ASSERT_FALSE(driver.pollStallGuard());
-  TEST_ASSERT_EQUAL_UINT32(4U, uart.writtenCount_);
+  TEST_ASSERT_EQUAL_UINT32(12U, uart.writtenCount_);
   TEST_ASSERT_EQUAL_UINT8(0x05U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x00U, uart.written_[1]);
   TEST_ASSERT_EQUAL_UINT8(0x41U, uart.written_[2]);
   TEST_ASSERT_EQUAL_UINT8(tmcCrc(uart.written_, 3U), uart.written_[3]);
 
-  queueTmcResponse(uart, 0x41U, 200U);
+  queueTmcResponseOnNextFlush(uart, 0x41U, 200U);
   TEST_ASSERT_FALSE(driver.pollStallGuard());
 
-  queueTmcReadEcho(uart, 0x41U);
-  queueTmcResponse(uart, 0x41U, 10U);
+  queueTmcReadEchoOnNextFlush(uart, 0x41U);
+  queueTmcResponseOnNextFlush(uart, 0x41U, 10U);
   TEST_ASSERT_TRUE(driver.pollStallGuard());
 }
 
@@ -2028,12 +2107,12 @@ void test_tmc_driver_updates_stallguard_threshold_register_and_poll_limit() {
   TEST_ASSERT_EQUAL_UINT8(64U, uart.written_[6]);
   TEST_ASSERT_EQUAL_UINT8(tmcCrc(uart.written_, 7U), uart.written_[7]);
 
-  queueTmcResponse(uart, 0x41U, 65U);
+  queueTmcResponseOnNextFlush(uart, 0x41U, 65U);
   TEST_ASSERT_EQUAL(Tmc2209PollResult::NotStalled,
                     driver.pollStallGuardStatus());
 
-  queueTmcReadEcho(uart, 0x41U);
-  queueTmcResponse(uart, 0x41U, 64U);
+  queueTmcReadEchoOnNextFlush(uart, 0x41U);
+  queueTmcResponseOnNextFlush(uart, 0x41U, 64U);
   TEST_ASSERT_EQUAL(Tmc2209PollResult::Stalled,
                     driver.pollStallGuardStatus());
 }
@@ -2044,8 +2123,8 @@ void test_tmc_driver_accepts_datasheet_read_reply_master_address() {
   CapturingEvents events;
   Tmc2209Driver driver(uart, delay, events);
 
-  queueTmcReadEcho(uart, 0x41U);
-  queueTmcResponse(uart, 0x41U, 10U, 0xFFU);
+  queueTmcReadEchoOnNextFlush(uart, 0x41U);
+  queueTmcResponseOnNextFlush(uart, 0x41U, 10U, 0xFFU);
 
   TEST_ASSERT_TRUE(driver.pollStallGuard());
 }
@@ -2059,6 +2138,8 @@ void test_tmc_poll_reports_communication_error_without_response() {
   const Tmc2209PollResult result = driver.pollStallGuardStatus();
 
   TEST_ASSERT_EQUAL(Tmc2209PollResult::CommunicationError, result);
+  TEST_ASSERT_EQUAL_UINT32(12U, uart.writtenCount_);
+  TEST_ASSERT_EQUAL_UINT32(3U, uart.flushCount_);
 }
 
 void test_tmc_poll_reports_not_stalled_above_threshold() {
@@ -2066,7 +2147,7 @@ void test_tmc_poll_reports_not_stalled_above_threshold() {
   FakeDelay delay;
   CapturingEvents events;
   Tmc2209Driver driver(uart, delay, events);
-  queueTmcResponse(uart, 0x41U, 0x000003FFUL);
+  queueTmcResponseOnNextFlush(uart, 0x41U, 0x000003FFUL);
 
   const Tmc2209PollResult result = driver.pollStallGuardStatus();
 
@@ -2081,8 +2162,30 @@ void test_tmc_verify_communication_requires_valid_readback() {
 
   TEST_ASSERT_FALSE(driver.verifyCommunication());
 
-  queueTmcResponse(uart, 0x00U, 0x000001C1UL);
+  queueTmcResponseOnNextFlush(uart, 0x00U, 0x000001C4UL);
   TEST_ASSERT_TRUE(driver.verifyCommunication());
+}
+
+void test_tmc_read_discards_stale_single_wire_write_echoes_before_poll() {
+  FakeUart uart;
+  FakeDelay delay;
+  CapturingEvents events;
+  Tmc2209Driver driver(uart, delay, events);
+
+  queueTmcWriteEcho(uart, 0x00U, 0x000001C4UL);
+  queueTmcWriteEcho(uart, 0x10U, 0x00081F10UL);
+  queueTmcWriteEcho(uart, 0x11U, 0x00000014UL);
+  queueTmcWriteEcho(uart, 0x6CU, 0x14030053UL);
+  queueTmcWriteEcho(uart, 0x70U, 0xC80D0E24UL);
+  queueTmcWriteEcho(uart, 0x40U, 100U);
+  queueTmcWriteEcho(uart, 0x01U, 0x00000007UL);
+  queueTmcWriteEcho(uart, 0x40U, 64U);
+  queueTmcReadEchoOnNextFlush(uart, 0x41U);
+  queueTmcResponseOnNextFlush(uart, 0x41U, 200U, 0xFFU);
+
+  const Tmc2209PollResult result = driver.pollStallGuardStatus();
+
+  TEST_ASSERT_EQUAL(Tmc2209PollResult::NotStalled, result);
 }
 
 }  // namespace
@@ -2112,7 +2215,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_degree_soft_endstop_commands_configure_allowed_angle_range);
   RUN_TEST(test_stallguard_threshold_command_validates_and_reports_setting);
   RUN_TEST(test_homing_uses_stallguard_as_min_endstop_redundancy);
+  RUN_TEST(test_homing_ignores_stallguard_until_minimum_travel_is_reached);
   RUN_TEST(test_homing_uses_stallguard_as_max_endstop_redundancy);
+  RUN_TEST(test_homing_max_ignores_stallguard_until_minimum_travel_is_reached);
   RUN_TEST(test_invalid_homing_range_enters_fault_state);
   RUN_TEST(test_homing_min_fails_when_switch_is_not_reached_within_travel);
   RUN_TEST(test_fault_reason_records_homing_min_timeout);
@@ -2175,5 +2280,6 @@ int main(int argc, char** argv) {
   RUN_TEST(test_tmc_poll_reports_communication_error_without_response);
   RUN_TEST(test_tmc_poll_reports_not_stalled_above_threshold);
   RUN_TEST(test_tmc_verify_communication_requires_valid_readback);
+  RUN_TEST(test_tmc_read_discards_stale_single_wire_write_echoes_before_poll);
   return UNITY_END();
 }

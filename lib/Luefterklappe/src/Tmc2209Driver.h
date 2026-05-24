@@ -13,13 +13,19 @@ struct Tmc2209Config {
   std::uint8_t syncByte;
   std::uint8_t slaveAddress;
   std::uint8_t gconfRegister;
+  std::uint8_t globalStatusRegister;
   std::uint8_t holdRunCurrentRegister;
+  std::uint8_t powerDownRegister;
   std::uint8_t chopConfigRegister;
+  std::uint8_t pwmConfigRegister;
   std::uint8_t stallGuardThresholdRegister;
   std::uint8_t stallGuardResultRegister;
   std::uint32_t gconfValue;
+  std::uint32_t globalStatusClearValue;
   std::uint32_t holdRunCurrentValue;
+  std::uint32_t powerDownValue;
   std::uint32_t chopConfigValue;
+  std::uint32_t pwmConfigValue;
   std::uint8_t stallGuardThreshold;
   std::uint32_t resetDelayMs;
   std::uint32_t responseDelayMs;
@@ -29,13 +35,19 @@ constexpr Tmc2209Config kDefaultTmc2209Config{
     0x05U,
     0x00U,
     0x00U,
+    0x01U,
     0x10U,
+    0x11U,
     0x6CU,
+    0x70U,
     0x40U,
     0x41U,
-    0x000001C1UL,
+    0x000001C4UL,
+    0x00000007UL,
     0x00081F10UL,
+    0x00000014UL,
     0x14030053UL,
+    0xC80D0E24UL,
     100U,
     10UL,
     2UL};
@@ -69,6 +81,8 @@ class Tmc2209Driver {
   static constexpr std::size_t kReadDatagramLength = 4U;
   static constexpr std::size_t kWriteDatagramLength = 8U;
   static constexpr std::size_t kMaxReadBytes = 24U;
+  static constexpr std::size_t kMaxStaleReadBytes = 64U;
+  static constexpr std::uint8_t kPollReadAttempts = 3U;
   static constexpr std::uint8_t kWriteAccessMask = 0x80U;
   static constexpr std::uint8_t kMasterReplyAddress = 0xFFU;
 
@@ -77,6 +91,7 @@ class Tmc2209Driver {
   static bool isResponseForRegister(const std::uint8_t* data,
                                     const Tmc2209Config& config,
                                     std::uint8_t registerAddress);
+  void drainReceiveBuffer();
   void writeRegister(RegisterWrite write);
   void writeDatagram(const std::uint8_t* data, std::size_t length);
 

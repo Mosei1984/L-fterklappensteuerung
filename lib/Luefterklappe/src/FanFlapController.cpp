@@ -37,6 +37,7 @@ FanFlapController::FanFlapController(StepperPort& motor, EventSink& events,
       targetPosition_(0),
       softMinPosition_(0),
       softMaxPosition_(0),
+      homingStartPosition_(0),
       freeCheckStartPosition_(0),
       lastProgressPosition_(0),
       lastProgressMs_(kTimerNotStarted),
@@ -60,6 +61,7 @@ void FanFlapController::begin() {
   targetPosition_ = 0;
   softMinPosition_ = 0;
   softMaxPosition_ = 0;
+  homingStartPosition_ = 0;
   softEndstopsEnabled_ = true;
   valveFreeCheckActive_ = false;
   motionSupervisionActive_ = false;
@@ -419,7 +421,7 @@ void FanFlapController::handleHomingMinState(const DigitalInputs& inputs,
   motor_.run();
 
   if (!inputs.minSwitchActive) {
-    if (inputs.stallGuardActive) {
+    if (inputs.stallGuardActive && stallGuardTravelArmed()) {
       motor_.stop();
       motor_.setCurrentPosition(0);
       stateTimestampMs_ = nowMs;
@@ -454,7 +456,7 @@ void FanFlapController::handleHomingMaxState(const DigitalInputs& inputs,
   motor_.run();
 
   if (!inputs.maxSwitchActive) {
-    if (inputs.stallGuardActive) {
+    if (inputs.stallGuardActive && stallGuardTravelArmed()) {
       motor_.stop();
       maxPosition_ = motor_.currentPosition();
       emit(EventId::SensorlessMaxPositionReached, maxPosition_);
@@ -513,20 +515,21 @@ void FanFlapController::handleReadyState(const DigitalInputs& inputs,
                                          const std::uint32_t nowMs) {
   motor_.run();
 
-  if (inputs.stallGuardActive) {
+  const FaultReason unexpectedReason = unexpectedSwitchReason(inputs);
+  if (unexpectedReason != FaultReason::None) {
+    enterError(unexpectedReason);
+    return;
+  }
+
+  updateValveFreeCheck(nowMs);
+  if (state_ != ControllerState::Ready) {
+    return;
+  }
+
+  if (inputs.stallGuardActive && !valveFreeCheckActive_) {
     emit(EventId::StallDetected);
     enterError(FaultReason::StallGuardDuringMove);
   } else {
-    const FaultReason unexpectedReason = unexpectedSwitchReason(inputs);
-    if (unexpectedReason != FaultReason::None) {
-      enterError(unexpectedReason);
-      return;
-    }
-
-    updateValveFreeCheck(nowMs);
-    if (state_ != ControllerState::Ready) {
-      return;
-    }
     updateMotionSupervision(nowMs);
   }
 }
@@ -568,6 +571,7 @@ void FanFlapController::startHomingMin() {
   valveFreeCheckActive_ = false;
   motionSupervisionActive_ = false;
   moveConfirmationPending_ = false;
+  homingStartPosition_ = currentPosition();
   motor_.setMaxSpeed(config_.homingMaxSpeed);
   motor_.moveTo(-homingTravelSteps());
   state_ = ControllerState::HomingMin;
@@ -578,6 +582,7 @@ void FanFlapController::startHomingMax() {
   valveFreeCheckActive_ = false;
   motionSupervisionActive_ = false;
   moveConfirmationPending_ = false;
+  homingStartPosition_ = currentPosition();
   motor_.setMaxSpeed(config_.homingMaxSpeed);
   motor_.moveTo(homingTravelSteps());
   state_ = ControllerState::HomingMax;
@@ -629,6 +634,19 @@ bool FanFlapController::homingMinTravelExceeded() const {
 
 bool FanFlapController::homingMaxTravelExceeded() const {
   return currentPosition() >= homingTravelSteps();
+}
+
+bool FanFlapController::stallGuardTravelArmed() const {
+  return absoluteDistance(currentPosition(), homingStartPosition_) >=
+         stallGuardActivationTravelSteps();
+}
+
+std::int32_t FanFlapController::stallGuardActivationTravelSteps() const {
+  if (config_.freeCheckSteps > 0) {
+    return config_.freeCheckSteps;
+  }
+
+  return motionProgressMinSteps();
 }
 
 std::int32_t FanFlapController::positionFromPermille(

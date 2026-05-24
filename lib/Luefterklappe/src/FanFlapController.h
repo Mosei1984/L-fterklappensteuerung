@@ -203,6 +203,8 @@ class FanFlapController {
   bool requireReady();
   bool homingMinTravelExceeded() const;
   bool homingMaxTravelExceeded() const;
+  bool stallGuardTravelArmed() const;
+  std::int32_t stallGuardActivationTravelSteps() const;
   bool applyAddressFilter(TextView& text);
   void handleGotoCommand(const TextView& argument);
   void handleSoftMinCommand(const TextView& argument);
@@ -255,6 +257,7 @@ class FanFlapController {
   std::int32_t targetPosition_;
   std::int32_t softMinPosition_;
   std::int32_t softMaxPosition_;
+  std::int32_t homingStartPosition_;
   std::int32_t freeCheckStartPosition_;
   std::int32_t lastProgressPosition_;
   std::uint32_t lastProgressMs_;

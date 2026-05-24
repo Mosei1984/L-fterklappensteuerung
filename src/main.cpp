@@ -87,10 +87,15 @@ constexpr std::uint32_t kWatchdogTimeoutMs = 2000UL;
 constexpr unsigned int kStepPulseWidthUs = 20U;
 constexpr unsigned int kDirectStepHighUs = 100U;
 constexpr unsigned int kDirectStepLowUs = 900U;
-constexpr std::int32_t kMaxDirectStepTestSteps = 800;
+constexpr unsigned int kSlowDirectStepHighUs = 1000U;
+constexpr unsigned int kSlowDirectStepLowUs = 4000U;
+constexpr std::uint32_t kDriverEnableSettleMs = 50UL;
+constexpr std::int32_t kMaxDirectStepTestSteps = 3200;
 constexpr std::uint8_t kPinWalkPins[] = {2U, 3U, 7U};
 constexpr std::uint8_t kPinWalkPulseCounts[] = {2U, 3U, 7U};
 constexpr std::uint32_t kPinWalkPulseMs = 20UL;
+
+void kickWatchdog();
 constexpr std::uint32_t kPinWalkGapMs = 80UL;
 constexpr std::size_t kMaxBusBytesPerLoop = 32U;
 constexpr std::size_t kSettingsFlashScratchSize = 4096U;
@@ -111,7 +116,12 @@ enum class StatusLedMode : std::uint8_t { Off, On, SlowBlink, FastBlink };
 class ArduinoStepperPort final : public StepperPort {
  public:
   void setDriverEnabled(const bool enabled) override {
+    const bool wasEnabled = driverEnabled_;
     digitalWrite(kEnablePin, enabled ? LOW : HIGH);
+    driverEnabled_ = enabled;
+    if (enabled && !wasEnabled) {
+      delay(kDriverEnableSettleMs);
+    }
   }
 
   void setMaxSpeed(const float speed) override { stepper.setMaxSpeed(speed); }
@@ -137,6 +147,9 @@ class ArduinoStepperPort final : public StepperPort {
   }
 
   float speed() const override { return stepper.speed(); }
+
+ private:
+  bool driverEnabled_{false};
 };
 
 class ArduinoUartPort final : public UartPort {
@@ -653,30 +666,81 @@ void printPinDiagnostics() {
   Serial.println(kStepPulseWidthUs);
 }
 
-void runDirectStepTest(const std::int32_t steps) {
+bool isBringupStepPin(const std::uint8_t pin) {
+  return (pin == 2U) || (pin == 3U);
+}
+
+void runDirectStepTestOnPins(const std::uint8_t stepPin,
+                             const std::uint8_t dirPin,
+                             const std::int32_t steps,
+                             const unsigned int highUs,
+                             const unsigned int lowUs,
+                             const __FlashStringHelper* const label) {
   if ((steps == 0) || (steps < -kMaxDirectStepTestSteps) ||
-      (steps > kMaxDirectStepTestSteps)) {
+      (steps > kMaxDirectStepTestSteps) || !isBringupStepPin(stepPin) ||
+      !isBringupStepPin(dirPin) || (stepPin == dirPin)) {
     Serial.println(F("STEPTEST ungueltig."));
     return;
   }
 
   const std::int32_t absoluteSteps = steps < 0 ? -steps : steps;
+  pinMode(stepPin, OUTPUT);
+  pinMode(dirPin, OUTPUT);
+  digitalWrite(stepPin, LOW);
+  digitalWrite(dirPin, steps >= 0 ? HIGH : LOW);
   digitalWrite(kEnablePin, LOW);
-  digitalWrite(kDirPin, steps >= 0 ? HIGH : LOW);
+  delay(kDriverEnableSettleMs);
   delayMicroseconds(kStepPulseWidthUs);
 
   for (std::int32_t index = 0; index < absoluteSteps; ++index) {
-    digitalWrite(kStepPin, HIGH);
-    delayMicroseconds(kDirectStepHighUs);
-    digitalWrite(kStepPin, LOW);
-    delayMicroseconds(kDirectStepLowUs);
+    digitalWrite(stepPin, HIGH);
+    delayMicroseconds(highUs);
+    digitalWrite(stepPin, LOW);
+    delayMicroseconds(lowUs);
+    if ((index % 64) == 0) {
+      kickWatchdog();
+    }
   }
 
   digitalWrite(kEnablePin, HIGH);
-  Serial.print(F("STEPTEST beendet: "));
+  Serial.print(label);
+  Serial.print(F(" beendet: STEP=GP"));
+  Serial.print(stepPin);
+  Serial.print(F(" DIR=GP"));
+  Serial.print(dirPin);
+  Serial.print(F(" "));
   Serial.print(steps);
   Serial.println(F(" Steps."));
 }
+
+void runDirectStepTest(const std::int32_t steps) {
+  runDirectStepTestOnPins(kStepPin, kDirPin, steps, kSlowDirectStepHighUs,
+                          kSlowDirectStepLowUs, F("STEPTEST"));
+}
+
+#if LUEFTERKLAPPE_USE_TMC2209_UART
+void readTmcRegister(const std::int32_t registerAddress) {
+  if ((registerAddress < 0) || (registerAddress > 127)) {
+    Serial.println(F("TMCREAD ungueltig."));
+    return;
+  }
+
+  std::uint32_t value = 0U;
+  const auto address = static_cast<std::uint8_t>(registerAddress);
+  if (!tmcDriver.readRegister(address, value)) {
+    Serial.print(F("TMCREAD FEHLER REG="));
+    Serial.println(registerAddress);
+    return;
+  }
+
+  Serial.print(F("TMCREAD REG="));
+  Serial.print(registerAddress);
+  Serial.print(F(" VALUE=0x"));
+  Serial.print(value, HEX);
+  Serial.print(F(" DEC="));
+  Serial.println(value);
+}
+#endif
 
 void runPinWalk() {
   Serial.println(F("PINWALK Start."));
@@ -738,10 +802,32 @@ void handleCompletedUsbCommand() {
       printPinDiagnostics();
     } else if (usbCommandEquals("BOOTSEL")) {
       rebootToBootsel();
+#if LUEFTERKLAPPE_USE_TMC2209_UART
+    } else if (usbCommandArgument("TMCREAD", directStepTestSteps)) {
+      readTmcRegister(directStepTestSteps);
+    } else if (usbCommandEquals("TMCREINIT")) {
+      tmcDriver.initialize();
+      tmcDriver.setStallGuardThreshold(activeSettings.stallGuardThreshold);
+      Serial.println(F("TMCREINIT beendet."));
+#endif
     } else if (usbCommandEquals("PINWALK")) {
       runPinWalk();
     } else if (usbCommandArgument("PINPULSE", pulsePin)) {
       runPinPulse(pulsePin);
+    } else if (usbCommandArgument("STEPTEST2", directStepTestSteps)) {
+      runDirectStepTestOnPins(2U, 3U, directStepTestSteps, kDirectStepHighUs,
+                              kDirectStepLowUs, F("STEPTEST2"));
+    } else if (usbCommandArgument("STEPTEST3", directStepTestSteps)) {
+      runDirectStepTestOnPins(3U, 2U, directStepTestSteps, kDirectStepHighUs,
+                              kDirectStepLowUs, F("STEPTEST3"));
+    } else if (usbCommandArgument("STEPTEST2SLOW", directStepTestSteps)) {
+      runDirectStepTestOnPins(2U, 3U, directStepTestSteps,
+                              kSlowDirectStepHighUs, kSlowDirectStepLowUs,
+                              F("STEPTEST2SLOW"));
+    } else if (usbCommandArgument("STEPTEST3SLOW", directStepTestSteps)) {
+      runDirectStepTestOnPins(3U, 2U, directStepTestSteps,
+                              kSlowDirectStepHighUs, kSlowDirectStepLowUs,
+                              F("STEPTEST3SLOW"));
     } else if (usbCommandArgument("STEPTEST", directStepTestSteps)) {
       runDirectStepTest(directStepTestSteps);
     } else {
@@ -1015,11 +1101,11 @@ void setup() {
   static_cast<void>(
       controller.setStallGuardThreshold(activeSettings.stallGuardThreshold));
   settingsPersistenceEnabled = true;
-  controller.begin();
 #if LUEFTERKLAPPE_USE_TMC2209_UART
   tmcDriver.initialize();
   tmcDriver.setStallGuardThreshold(activeSettings.stallGuardThreshold);
 #endif
+  controller.begin();
 }
 
 void loop() {
