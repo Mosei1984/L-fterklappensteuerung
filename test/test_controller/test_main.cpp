@@ -902,6 +902,21 @@ void test_serial_goto_clamps_edges_and_rejects_bad_numbers() {
   TEST_ASSERT_EQUAL_INT32(800, controller.targetPosition());
 }
 
+void test_ready_move_reenables_driver_after_direct_service_tests() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.enabled_ = false;
+
+  controller.handleCommand("GOTO 300");
+
+  TEST_ASSERT_TRUE(stepper.enabled_);
+  TEST_ASSERT_EQUAL_INT32(300, stepper.target_);
+  TEST_ASSERT_TRUE(events.contains(EventId::MoveAccepted));
+}
+
 void test_soft_endstop_configuration_handles_clamps_and_invalid_ranges() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -987,6 +1002,43 @@ void test_ready_faults_on_unexpected_switch_and_stall() {
   stalledController.tick(DigitalInputs{false, false, true}, 21U);
   TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, stalledController.state());
   TEST_ASSERT_TRUE(stalledEvents.contains(EventId::StallDetected));
+}
+
+void test_ready_ignores_stale_stallguard_when_motor_is_stopped() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.position_ = controller.targetPosition();
+  stepper.speed_ = 0.0F;
+  events.clear();
+
+  controller.tick(DigitalInputs{false, false, true}, 20U);
+
+  TEST_ASSERT_EQUAL(ControllerState::Ready, controller.state());
+  TEST_ASSERT_FALSE(events.contains(EventId::StallDetected));
+  TEST_ASSERT_EQUAL(static_cast<std::uint16_t>(FaultReason::None),
+                    static_cast<std::uint16_t>(controller.lastFaultReason()));
+}
+
+void test_ready_ignores_stallguard_until_move_activation_travel_is_reached() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.position_ = 778;
+  stepper.speed_ = -1.0F;
+  events.clear();
+
+  controller.tick(DigitalInputs{false, false, true}, 20U);
+
+  TEST_ASSERT_EQUAL(ControllerState::Ready, controller.state());
+  TEST_ASSERT_TRUE(events.contains(EventId::ValveFreeCheckPassed));
+  TEST_ASSERT_FALSE(events.contains(EventId::StallDetected));
+  TEST_ASSERT_EQUAL(static_cast<std::uint16_t>(FaultReason::None),
+                    static_cast<std::uint16_t>(controller.lastFaultReason()));
 }
 
 void test_fault_stops_and_disables_driver_in_same_tick() {
@@ -2225,9 +2277,12 @@ int main(int argc, char** argv) {
   RUN_TEST(test_fault_reason_records_unexpected_switch_direction);
   RUN_TEST(test_reset_timeout_is_exact_and_wraparound_safe);
   RUN_TEST(test_serial_goto_clamps_edges_and_rejects_bad_numbers);
+  RUN_TEST(test_ready_move_reenables_driver_after_direct_service_tests);
   RUN_TEST(test_soft_endstop_configuration_handles_clamps_and_invalid_ranges);
   RUN_TEST(test_commands_are_safe_before_ready_and_status_is_always_available);
   RUN_TEST(test_ready_faults_on_unexpected_switch_and_stall);
+  RUN_TEST(test_ready_ignores_stale_stallguard_when_motor_is_stopped);
+  RUN_TEST(test_ready_ignores_stallguard_until_move_activation_travel_is_reached);
   RUN_TEST(test_fault_stops_and_disables_driver_in_same_tick);
   RUN_TEST(test_repeated_external_fault_does_not_flood_fault_counter);
   RUN_TEST(test_fault_latches_zero_speed_when_driver_stop_coasts);

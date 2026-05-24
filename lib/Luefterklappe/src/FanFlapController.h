@@ -204,6 +204,7 @@ class FanFlapController {
   bool homingMinTravelExceeded() const;
   bool homingMaxTravelExceeded() const;
   bool stallGuardTravelArmed() const;
+  bool stallGuardMoveArmed() const;
   std::int32_t stallGuardActivationTravelSteps() const;
   bool applyAddressFilter(TextView& text);
   void handleGotoCommand(const TextView& argument);

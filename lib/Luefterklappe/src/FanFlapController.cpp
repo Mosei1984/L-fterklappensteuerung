@@ -266,6 +266,7 @@ std::int32_t FanFlapController::moveTo(const std::int32_t position) {
     }
   }
 
+  motor_.setDriverEnabled(true);
   motor_.moveTo(acceptedPosition);
   targetPosition_ = acceptedPosition;
   beginMotionSupervision();
@@ -526,7 +527,9 @@ void FanFlapController::handleReadyState(const DigitalInputs& inputs,
     return;
   }
 
-  if (inputs.stallGuardActive && !valveFreeCheckActive_) {
+  const bool motorMoving = motor_.speed() != 0.0F;
+  if (inputs.stallGuardActive && motorMoving && !valveFreeCheckActive_ &&
+      stallGuardMoveArmed()) {
     emit(EventId::StallDetected);
     enterError(FaultReason::StallGuardDuringMove);
   } else {
@@ -641,12 +644,37 @@ bool FanFlapController::stallGuardTravelArmed() const {
          stallGuardActivationTravelSteps();
 }
 
+bool FanFlapController::stallGuardMoveArmed() const {
+  return absoluteDistance(currentPosition(), freeCheckStartPosition_) >=
+         stallGuardActivationTravelSteps();
+}
+
 std::int32_t FanFlapController::stallGuardActivationTravelSteps() const {
-  if (config_.freeCheckSteps > 0) {
-    return config_.freeCheckSteps;
+  std::int64_t activationSteps = homingTravelSteps() / 10;
+
+  if (activationSteps < 1) {
+    activationSteps = 1;
   }
 
-  return motionProgressMinSteps();
+  if (config_.freeCheckSteps > 0) {
+    const std::int64_t freeCheckGate =
+        static_cast<std::int64_t>(config_.freeCheckSteps) * 5LL;
+    if (freeCheckGate > activationSteps) {
+      activationSteps = freeCheckGate;
+    }
+  }
+
+  const std::int64_t progressGate =
+      static_cast<std::int64_t>(motionProgressMinSteps()) * 10LL;
+  if (progressGate > activationSteps) {
+    activationSteps = progressGate;
+  }
+
+  if (activationSteps > std::numeric_limits<std::int32_t>::max()) {
+    return std::numeric_limits<std::int32_t>::max();
+  }
+
+  return static_cast<std::int32_t>(activationSteps);
 }
 
 std::int32_t FanFlapController::positionFromPermille(
