@@ -262,7 +262,7 @@ bool FanFlapController::setStallGuardThreshold(const std::uint16_t threshold) {
 }
 
 bool FanFlapController::setHomingConfig(const HomingConfig config) {
-  if (!homingConfigCanBeApplied(config)) {
+  if (!homingConfigValuesAreValid(config)) {
     emit(EventId::HomingConfigInvalid,
          static_cast<std::int32_t>(config.minSwitch),
          static_cast<std::int32_t>(config.maxSwitch), false,
@@ -281,9 +281,25 @@ bool FanFlapController::setHomingConfig(const HomingConfig config) {
     return true;
   }
 
+  if (!homingConfigCanBeApplied(config)) {
+    emit(EventId::HomingConfigInvalid,
+         static_cast<std::int32_t>(config.minSwitch),
+         static_cast<std::int32_t>(config.maxSwitch), false,
+         static_cast<std::int32_t>(config.minDirection),
+         static_cast<std::int32_t>(config.maxDirection),
+         config.stepperDirectionInverted ? 1 : 0);
+    return false;
+  }
+
   const std::int32_t current = currentPosition();
   const std::int32_t target = targetPosition_;
-  const bool shouldRehome = state_ == ControllerState::Ready;
+  const bool shouldRehome =
+      (state_ == ControllerState::HomingMin) ||
+      (state_ == ControllerState::HomingMinSettling) ||
+      (state_ == ControllerState::HomingMax) ||
+      (state_ == ControllerState::HomingMaxSettling) ||
+      (state_ == ControllerState::Ready) ||
+      (state_ == ControllerState::AutoRehome);
   homingConfig_ = config;
   setLogicalCurrentPosition(current);
   targetPosition_ = target;
@@ -1018,7 +1034,10 @@ void FanFlapController::handleDeviceIdCommand(const TextView& argument) {
     return;
   }
 
-  static_cast<void>(setDeviceId(value));
+  const bool unchanged = deviceId_ == value;
+  if (setDeviceId(value) && unchanged) {
+    emit(EventId::DeviceIdReported, deviceId_);
+  }
 }
 
 void FanFlapController::handleSafePositionCommand(const TextView& argument) {
@@ -1029,8 +1048,11 @@ void FanFlapController::handleSafePositionCommand(const TextView& argument) {
     return;
   }
 
-  static_cast<void>(
-      setSafePositionPermille(static_cast<std::uint16_t>(value)));
+  const auto acceptedValue = static_cast<std::uint16_t>(value);
+  const bool unchanged = safePositionPermille_ == acceptedValue;
+  if (setSafePositionPermille(acceptedValue) && unchanged) {
+    emit(EventId::SafePositionReported, safePositionPermille_);
+  }
 }
 
 void FanFlapController::handleStallGuardThresholdCommand(
@@ -1043,8 +1065,11 @@ void FanFlapController::handleStallGuardThresholdCommand(
     return;
   }
 
-  static_cast<void>(
-      setStallGuardThreshold(static_cast<std::uint16_t>(value)));
+  const auto acceptedValue = static_cast<std::uint16_t>(value);
+  const bool unchanged = stallGuardThreshold_ == acceptedValue;
+  if (setStallGuardThreshold(acceptedValue) && unchanged) {
+    emit(EventId::StallGuardThresholdReported, stallGuardThreshold_);
+  }
 }
 
 void FanFlapController::handleHomingConfigCommand(const TextView& argument) {
@@ -1055,7 +1080,21 @@ void FanFlapController::handleHomingConfigCommand(const TextView& argument) {
     return;
   }
 
-  static_cast<void>(setHomingConfig(config));
+  const bool unchanged =
+      (homingConfig_.minSwitch == config.minSwitch) &&
+      (homingConfig_.maxSwitch == config.maxSwitch) &&
+      (homingConfig_.minDirection == config.minDirection) &&
+      (homingConfig_.maxDirection == config.maxDirection) &&
+      (homingConfig_.stepperDirectionInverted ==
+       config.stepperDirectionInverted);
+  if (setHomingConfig(config) && unchanged) {
+    emit(EventId::HomingConfigReported,
+         static_cast<std::int32_t>(homingConfig_.minSwitch),
+         static_cast<std::int32_t>(homingConfig_.maxSwitch), false,
+         static_cast<std::int32_t>(homingConfig_.minDirection),
+         static_cast<std::int32_t>(homingConfig_.maxDirection),
+         homingConfig_.stepperDirectionInverted ? 1 : 0);
+  }
 }
 
 void FanFlapController::handleMotorConfigCommand(const TextView& argument) {
@@ -1066,7 +1105,18 @@ void FanFlapController::handleMotorConfigCommand(const TextView& argument) {
     return;
   }
 
-  static_cast<void>(setMotorConfig(config));
+  const bool unchanged =
+      (motorConfig_.normalMaxSpeedStepsPerSecond ==
+       config.normalMaxSpeedStepsPerSecond) &&
+      (motorConfig_.homingMaxSpeedStepsPerSecond ==
+       config.homingMaxSpeedStepsPerSecond) &&
+      (motorConfig_.runCurrentMilliamps == config.runCurrentMilliamps);
+  if (setMotorConfig(config) && unchanged) {
+    emit(EventId::MotorConfigReported,
+         motorConfig_.normalMaxSpeedStepsPerSecond,
+         motorConfig_.homingMaxSpeedStepsPerSecond, false,
+         motorConfig_.runCurrentMilliamps);
+  }
 }
 
 bool FanFlapController::parseHomingConfig(const TextView& argument,
@@ -1323,7 +1373,12 @@ bool FanFlapController::homingConfigCanBeApplied(
   }
 
   return (state_ == ControllerState::Init) ||
+         (state_ == ControllerState::HomingMin) ||
+         (state_ == ControllerState::HomingMinSettling) ||
+         (state_ == ControllerState::HomingMax) ||
+         (state_ == ControllerState::HomingMaxSettling) ||
          (state_ == ControllerState::Ready) ||
+         (state_ == ControllerState::AutoRehome) ||
          (state_ == ControllerState::ErrorDetected) ||
          (state_ == ControllerState::WaitReset);
 }

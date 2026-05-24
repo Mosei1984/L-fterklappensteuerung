@@ -835,6 +835,26 @@ void test_stallguard_threshold_command_validates_and_reports_setting() {
   TEST_ASSERT_TRUE(events.contains(EventId::StallGuardThresholdInvalid));
 }
 
+void test_setup_set_commands_acknowledge_unchanged_values() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  controller.handleCommand("ID 1");
+  TEST_ASSERT_EQUAL(EventId::DeviceIdReported, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(1, events.last().first);
+
+  events.clear();
+  controller.handleCommand("SAFE 500");
+  TEST_ASSERT_EQUAL(EventId::SafePositionReported, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(500, events.last().first);
+
+  events.clear();
+  controller.handleCommand("STALLGUARD 100");
+  TEST_ASSERT_EQUAL(EventId::StallGuardThresholdReported, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(100, events.last().first);
+}
+
 void test_homing_config_command_validates_reports_and_updates() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -873,6 +893,38 @@ void test_homing_config_command_validates_reports_and_updates() {
   TEST_ASSERT_TRUE(controller.homingConfig().stepperDirectionInverted);
 }
 
+void test_homing_config_command_acknowledges_unchanged_config_during_homing() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  controller.begin();
+  controller.tick(kNoInputs, 0U);
+  TEST_ASSERT_EQUAL(ControllerState::HomingMin, controller.state());
+
+  events.clear();
+  controller.handleCommand("HOMECFG 0 1 0 1 0");
+
+  TEST_ASSERT_FALSE(events.contains(EventId::HomingConfigInvalid));
+  TEST_ASSERT_EQUAL(EventId::HomingConfigReported, events.last().id);
+  TEST_ASSERT_EQUAL(ControllerState::HomingMin, controller.state());
+}
+
+void test_homing_config_command_can_restart_homing_during_setup() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  controller.begin();
+  controller.tick(kNoInputs, 0U);
+  TEST_ASSERT_EQUAL(ControllerState::HomingMin, controller.state());
+
+  events.clear();
+  controller.handleCommand("HOMECFG 1 0 1 0 1");
+
+  TEST_ASSERT_FALSE(events.contains(EventId::HomingConfigInvalid));
+  TEST_ASSERT_TRUE(events.contains(EventId::HomingConfigChanged));
+  TEST_ASSERT_EQUAL(ControllerState::AutoRehome, controller.state());
+}
+
 void test_motor_config_command_validates_reports_and_updates() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -897,6 +949,13 @@ void test_motor_config_command_validates_reports_and_updates() {
                                .homingMaxSpeedStepsPerSecond);
   TEST_ASSERT_EQUAL_UINT16(850U, controller.motorConfig().runCurrentMilliamps);
   TEST_ASSERT_EQUAL_FLOAT(900.0F, stepper.maxSpeed_);
+
+  events.clear();
+  controller.handleCommand("MOTORCFG 900 150 850");
+  TEST_ASSERT_EQUAL(EventId::MotorConfigReported, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(900, events.last().first);
+  TEST_ASSERT_EQUAL_INT32(150, events.last().second);
+  TEST_ASSERT_EQUAL_INT32(850, events.last().third);
 
   events.clear();
   controller.handleCommand("MOTORCFG 0 150 850");
@@ -2607,7 +2666,10 @@ int main(int argc, char** argv) {
   RUN_TEST(test_degree_position_commands_move_and_report_angle);
   RUN_TEST(test_degree_soft_endstop_commands_configure_allowed_angle_range);
   RUN_TEST(test_stallguard_threshold_command_validates_and_reports_setting);
+  RUN_TEST(test_setup_set_commands_acknowledge_unchanged_values);
   RUN_TEST(test_homing_config_command_validates_reports_and_updates);
+  RUN_TEST(test_homing_config_command_acknowledges_unchanged_config_during_homing);
+  RUN_TEST(test_homing_config_command_can_restart_homing_during_setup);
   RUN_TEST(test_motor_config_command_validates_reports_and_updates);
   RUN_TEST(test_homing_uses_stallguard_as_min_endstop_redundancy);
   RUN_TEST(test_homing_ignores_stallguard_until_minimum_travel_is_reached);
