@@ -58,7 +58,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\run_quality_checks.ps1
 
 Expected current coverage:
 
-- Firmware native tests: 95 passing tests.
+- Firmware native tests: 104 passing tests.
 - Pico firmware build: `pico` environment succeeds.
 - PlatformIO clang-tidy/cppcheck: native and pico pass.
 - Standalone cppcheck/MISRA addon path runs.
@@ -125,12 +125,12 @@ artifacts/configurator-installer/win-x64/Luefterklappen-Konfigurator-win-x64.zip
 - Position commands and limits can use steps, `0..1000` permille or `0..90`
   degrees; `0` degrees is open/horizontal and `90` degrees is closed/vertical.
 - Persistent device ID, safe position, StallGuard threshold, homing
-  configuration and motor parameters use a two-sector flash journal with
-  generation and CRC validation.
+  configuration, motor parameters and Auto-Home interval use a two-sector flash
+  journal with generation and CRC validation.
 - Diagnostic Modbus registers `17..22` are read-only and append the stable
   fault reason, fault count, settings status, TMC health, boot reason and
-  firmware protocol version `5`; degree/StallGuard/Homing/Motor configuration
-  registers are `23..35`.
+  firmware protocol version `6`; degree/StallGuard/Homing/Motor/Auto-Home
+  configuration registers are `23..36`.
 - Service text diagnostics are `DIAG?`, `FAULT?` and non-moving `SELFTEST?`.
 - `REFRESH` / Modbus command `5` is the preferred recovery after a controller
   fault: it stops, clears the fault path, and rehomes without rebooting the MCU.

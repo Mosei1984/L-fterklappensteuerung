@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "AutoHomeConfig.h"
 #include "HomingConfig.h"
 #include "MotorConfig.h"
 
@@ -15,6 +16,7 @@ struct PersistentSettings {
   std::uint8_t stallGuardThreshold{100U};
   HomingConfig homing{kDefaultHomingConfig};
   MotorConfig motor{kDefaultMotorConfig};
+  std::uint16_t autoHomeIntervalMinutes{kDefaultAutoHomeIntervalMinutes};
 };
 
 class SettingsStoragePort {
@@ -48,7 +50,7 @@ class PersistentSettingsStore {
     PersistentSettings settings;
   };
 
-  static constexpr std::size_t kStorageSize = 24U;
+  static constexpr std::size_t kStorageSize = 26U;
   static constexpr std::size_t kJournalSlotCount = 2U;
 
   bool storageUsable() const;

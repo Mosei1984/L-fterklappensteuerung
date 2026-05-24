@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "AutoHomeConfig.h"
 #include "FaultReason.h"
 #include "HomingConfig.h"
 #include "MotorConfig.h"
@@ -71,6 +72,10 @@ enum class EventId : std::uint8_t {
   MotorConfigReported,
   MotorConfigChanged,
   MotorConfigInvalid,
+  AutoHomeIntervalReported,
+  AutoHomeIntervalChanged,
+  AutoHomeIntervalInvalid,
+  AutoHomeIntervalElapsed,
   TmcInitializationStarted,
   TmcConfigured,
   FaultReported,
@@ -168,6 +173,7 @@ class FanFlapController {
   bool softEndstopsEnabled() const;
   std::uint16_t safePositionPermille() const;
   std::uint8_t stallGuardThreshold() const;
+  std::uint16_t autoHomeIntervalMinutes() const;
   HomingConfig homingConfig() const;
   MotorConfig motorConfig() const;
   FaultReason lastFaultReason() const;
@@ -178,6 +184,7 @@ class FanFlapController {
   bool setSoftEndstops(SoftEndstopRange range);
   bool setSafePositionPermille(std::uint16_t permille);
   bool setStallGuardThreshold(std::uint16_t threshold);
+  bool setAutoHomeIntervalMinutes(std::uint16_t minutes);
   bool setHomingConfig(HomingConfig config);
   bool setMotorConfig(MotorConfig config);
   std::int32_t moveTo(std::int32_t position);
@@ -228,6 +235,7 @@ class FanFlapController {
   void handleDeviceIdCommand(const TextView& argument);
   void handleSafePositionCommand(const TextView& argument);
   void handleStallGuardThresholdCommand(const TextView& argument);
+  void handleAutoHomeIntervalCommand(const TextView& argument);
   void handleHomingConfigCommand(const TextView& argument);
   void handleMotorConfigCommand(const TextView& argument);
   bool parseHomingConfig(const TextView& argument, HomingConfig& config) const;
@@ -257,6 +265,9 @@ class FanFlapController {
   bool homingConfigCanBeApplied(HomingConfig config) const;
   void beginMotionSupervision();
   void updateMotionSupervision(std::uint32_t nowMs);
+  void updateAutoHome(std::uint32_t nowMs);
+  bool autoHomeIdle() const;
+  static std::uint32_t minutesToMs(std::uint16_t minutes);
   void beginValveFreeCheck();
   void updateValveFreeCheck(std::uint32_t nowMs);
 
@@ -292,8 +303,10 @@ class FanFlapController {
   std::int32_t lastProgressPosition_;
   std::uint32_t lastProgressMs_;
   std::uint32_t freeCheckStartMs_;
+  std::uint32_t lastReferenceMs_;
   std::uint16_t safePositionPermille_;
   std::uint8_t stallGuardThreshold_;
+  std::uint16_t autoHomeIntervalMinutes_;
   HomingConfig homingConfig_;
   MotorConfig motorConfig_;
   FaultReason lastFaultReason_;

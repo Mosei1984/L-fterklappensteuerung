@@ -60,6 +60,8 @@ public sealed class SystemSerialControllerDiscovery(SystemSerialConnectionCloser
 
             var safeLine = QueryLine(serialPort, "SAFE?", cancellationToken);
             var safePosition = ParseFirstInt(safeLine);
+            var autoHomeLine = QueryLine(serialPort, "AUTOHOME?", cancellationToken);
+            var autoHomeInterval = ParseFirstInt(autoHomeLine);
             var homingLine = QueryLine(serialPort, "HOMECFG?", cancellationToken);
             var homingValues = ParseInts(homingLine, 5);
             var stepperDirectionInverted = HomingValueOrNull(homingValues, 4);
@@ -78,7 +80,8 @@ public sealed class SystemSerialControllerDiscovery(SystemSerialConnectionCloser
                 stepperDirectionInverted.HasValue ? stepperDirectionInverted.Value == 1 : null,
                 MotorValueOrNull(motorValues, 0, 20, 5000),
                 MotorValueOrNull(motorValues, 1, 20, 5000),
-                MotorValueOrNull(motorValues, 2, 100, 1000));
+                MotorValueOrNull(motorValues, 2, 100, 1000),
+                autoHomeInterval is >= 0 and <= 10080 ? autoHomeInterval : null);
         }
         catch (Exception exception) when (IsRecoverableSerialError(exception))
         {

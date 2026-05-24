@@ -149,10 +149,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\test_modbus_rtu_acce
      Diagnose sichtbar, nicht als falsche gueltige Responses.
 
 9. **Release-Diagnose und Konfigurationsregister**
-   - Master liest Register `0..35`, danach `17..22` und optional `23..35`.
+   - Master liest Register `0..36`, danach `17..22` und optional `23..36`.
    - Erwartung: gueltige CRC-Frames, read-only Diagnosebereich, Schreibversuche
      auf `17..22` liefern Illegal-Address-Exceptions; Grad-, StallGuard-,
-     Homing- und Motor-Register bleiben innerhalb ihrer Wertebereiche.
+     Homing-, Motor- und Auto-Home-Register bleiben innerhalb ihrer
+     Wertebereiche.
 
 ## Offline-Analyse
 

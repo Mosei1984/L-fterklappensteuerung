@@ -8,7 +8,8 @@ constexpr std::uint8_t kMagic1 = 'K';
 constexpr std::uint8_t kLegacyVersion = 2U;
 constexpr std::uint8_t kStallGuardVersion = 3U;
 constexpr std::uint8_t kHomingVersion = 4U;
-constexpr std::uint8_t kVersion = 5U;
+constexpr std::uint8_t kMotorVersion = 5U;
+constexpr std::uint8_t kVersion = 6U;
 constexpr std::size_t kMagic0Offset = 0U;
 constexpr std::size_t kMagic1Offset = 1U;
 constexpr std::size_t kVersionOffset = 2U;
@@ -25,13 +26,17 @@ constexpr std::size_t kStepperDirectionInvertedOffset = 15U;
 constexpr std::size_t kNormalMaxSpeedOffset = 16U;
 constexpr std::size_t kHomingMaxSpeedOffset = 18U;
 constexpr std::size_t kRunCurrentMilliampsOffset = 20U;
+constexpr std::size_t kAutoHomeIntervalMinutesOffset = 22U;
 constexpr std::size_t kLegacyCrcOffset = 14U;
 constexpr std::size_t kLegacyCrcLength = 14U;
-constexpr std::size_t kCrcOffset = 22U;
-constexpr std::size_t kCrcLength = 22U;
+constexpr std::size_t kMotorCrcOffset = 22U;
+constexpr std::size_t kMotorCrcLength = 22U;
+constexpr std::size_t kCrcOffset = 24U;
+constexpr std::size_t kCrcLength = 24U;
 constexpr PersistentSettings kDefaultSettings{1U, 1000U, 100U,
                                               kDefaultHomingConfig,
-                                              kDefaultMotorConfig};
+                                              kDefaultMotorConfig,
+                                              kDefaultAutoHomeIntervalMinutes};
 
 bool settingsEqual(const PersistentSettings& first,
                    const PersistentSettings& second) {
@@ -48,7 +53,9 @@ bool settingsEqual(const PersistentSettings& first,
           second.motor.normalMaxSpeedStepsPerSecond) &&
          (first.motor.homingMaxSpeedStepsPerSecond ==
           second.motor.homingMaxSpeedStepsPerSecond) &&
-         (first.motor.runCurrentMilliamps == second.motor.runCurrentMilliamps);
+         (first.motor.runCurrentMilliamps == second.motor.runCurrentMilliamps) &&
+         (first.autoHomeIntervalMinutes ==
+          second.autoHomeIntervalMinutes);
 }
 
 }  // namespace
@@ -123,7 +130,8 @@ bool PersistentSettingsStore::isValid(const PersistentSettings settings) {
   return (settings.deviceId >= 1U) && (settings.deviceId <= 247U) &&
          (settings.safePositionPermille <= 1000U) &&
          homingConfigValuesAreValid(settings.homing) &&
-         motorConfigValuesAreValid(settings.motor);
+         motorConfigValuesAreValid(settings.motor) &&
+         autoHomeIntervalMinutesIsValid(settings.autoHomeIntervalMinutes);
 }
 
 bool PersistentSettingsStore::storageUsable() const {
@@ -158,6 +166,7 @@ bool PersistentSettingsStore::decodeRecord(
     DecodedRecord& record) const {
   if ((data[kMagic0Offset] != kMagic0) || (data[kMagic1Offset] != kMagic1) ||
       ((data[kVersionOffset] != kVersion) &&
+       (data[kVersionOffset] != kMotorVersion) &&
        (data[kVersionOffset] != kHomingVersion) &&
        (data[kVersionOffset] != kStallGuardVersion) &&
        (data[kVersionOffset] != kLegacyVersion))) {
@@ -167,10 +176,13 @@ bool PersistentSettingsStore::decodeRecord(
   const bool legacyRecord = data[kVersionOffset] == kLegacyVersion;
   const bool stallGuardRecord = data[kVersionOffset] == kStallGuardVersion;
   const bool homingRecord = data[kVersionOffset] == kHomingVersion;
+  const bool motorRecord = data[kVersionOffset] == kMotorVersion;
   const std::size_t crcLength =
-      (legacyRecord || stallGuardRecord) ? kLegacyCrcLength : kCrcLength;
+      (legacyRecord || stallGuardRecord) ? kLegacyCrcLength :
+      (motorRecord || homingRecord) ? kMotorCrcLength : kCrcLength;
   const std::size_t crcOffset =
-      (legacyRecord || stallGuardRecord) ? kLegacyCrcOffset : kCrcOffset;
+      (legacyRecord || stallGuardRecord) ? kLegacyCrcOffset :
+      (motorRecord || homingRecord) ? kMotorCrcOffset : kCrcOffset;
   const std::uint16_t expectedCrc = crc16(data, crcLength);
   const std::uint16_t storedCrc = readUint16(data, crcOffset);
   if (expectedCrc != storedCrc) {
@@ -200,7 +212,10 @@ bool PersistentSettingsStore::decodeRecord(
           ? defaults_.motor
           : MotorConfig{readUint16(data, kNormalMaxSpeedOffset),
                         readUint16(data, kHomingMaxSpeedOffset),
-                        readUint16(data, kRunCurrentMilliampsOffset)}};
+                        readUint16(data, kRunCurrentMilliampsOffset)},
+      (legacyRecord || stallGuardRecord || homingRecord || motorRecord)
+          ? defaults_.autoHomeIntervalMinutes
+          : readUint16(data, kAutoHomeIntervalMinutesOffset)};
   if ((!legacyRecord) && (!stallGuardRecord) &&
       ((data[kHomeMinSwitchOffset] > 1U) ||
        (data[kHomeMaxSwitchOffset] > 1U) ||
@@ -250,6 +265,8 @@ void PersistentSettingsStore::encodeRecord(
               settings.motor.homingMaxSpeedStepsPerSecond);
   writeUint16(data, kRunCurrentMilliampsOffset,
               settings.motor.runCurrentMilliamps);
+  writeUint16(data, kAutoHomeIntervalMinutesOffset,
+              settings.autoHomeIntervalMinutes);
   writeUint16(data, kCrcOffset, crc16(data, kCrcLength));
 }
 

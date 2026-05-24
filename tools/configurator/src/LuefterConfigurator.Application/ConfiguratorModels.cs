@@ -16,6 +16,7 @@ public sealed record ConfiguratorSnapshot(
     int SoftMinDegree,
     int SoftMaxDegree,
     int StallGuardThreshold,
+    int AutoHomeIntervalMinutes,
     int NormalMaxSpeedStepsPerSecond,
     int HomingMaxSpeedStepsPerSecond,
     int RunCurrentMilliamps,
@@ -51,7 +52,8 @@ public sealed record ConfiguratorWriteConfigRequest(
     bool StepperDirectionInverted = false,
     int NormalMaxSpeedStepsPerSecond = 400,
     int HomingMaxSpeedStepsPerSecond = 200,
-    int RunCurrentMilliamps = 1000);
+    int RunCurrentMilliamps = 1000,
+    int AutoHomeIntervalMinutes = 0);
 
 public sealed record ConfiguratorProfileImportRequest(string Json);
 
@@ -209,7 +211,8 @@ public sealed record DiscoveredController(
     bool? StepperDirectionInverted = null,
     int? NormalMaxSpeedStepsPerSecond = null,
     int? HomingMaxSpeedStepsPerSecond = null,
-    int? RunCurrentMilliamps = null);
+    int? RunCurrentMilliamps = null,
+    int? AutoHomeIntervalMinutes = null);
 
 public interface IControllerDiscovery
 {

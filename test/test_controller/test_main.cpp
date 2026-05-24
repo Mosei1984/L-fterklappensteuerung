@@ -39,6 +39,7 @@ using luefterklappe::Tmc2209Driver;
 using luefterklappe::Tmc2209PollResult;
 using luefterklappe::UartPort;
 using luefterklappe::kDefaultHomingConfig;
+using luefterklappe::kDefaultMotorConfig;
 
 constexpr ControllerConfig kFastTestConfig{1000L, 5UL, 100UL, 400.0F, 200.0F,
                                            1000.0F, 500U, 20L, 2000UL,
@@ -258,8 +259,9 @@ class FakeSettingsStorage final : public SettingsStoragePort {
   }
 
   static constexpr std::size_t kSlotCount = 2U;
-  static constexpr std::size_t kSlotSize = 24U;
-  static constexpr std::size_t kCapacity = 48U;
+  static constexpr std::size_t kSlotSize =
+      PersistentSettingsStore::storageSize();
+  static constexpr std::size_t kCapacity = kSlotSize * kSlotCount;
   static constexpr std::size_t kNoSlot = static_cast<std::size_t>(-1);
   std::uint8_t bytes_[kCapacity]{};
   bool readOk_{true};
@@ -485,6 +487,24 @@ void test_persistent_settings_save_and_reload_motor_config() {
                            loaded.motor.runCurrentMilliamps);
 }
 
+void test_persistent_settings_save_and_reload_auto_home_interval() {
+  FakeSettingsStorage storage;
+  PersistentSettingsStore writer(storage);
+  const PersistentSettings saved{42U,
+                                 250U,
+                                 64U,
+                                 kDefaultHomingConfig,
+                                 kDefaultMotorConfig,
+                                 1440U};
+
+  TEST_ASSERT_TRUE(writer.save(saved));
+
+  PersistentSettingsStore reader(storage);
+  const PersistentSettings loaded = reader.load();
+
+  TEST_ASSERT_EQUAL_UINT16(1440U, loaded.autoHomeIntervalMinutes);
+}
+
 void test_persistent_settings_reject_corrupt_or_out_of_range_data() {
   FakeSettingsStorage storage;
   PersistentSettingsStore store(storage);
@@ -513,6 +533,8 @@ void test_persistent_settings_reject_corrupt_or_out_of_range_data() {
       7U, 750U, 90U, kDefaultHomingConfig, MotorConfig{0U, 200U, 800U}}));
   TEST_ASSERT_FALSE(store.save(PersistentSettings{
       7U, 750U, 90U, kDefaultHomingConfig, MotorConfig{400U, 200U, 1200U}}));
+  TEST_ASSERT_FALSE(store.save(PersistentSettings{
+      7U, 750U, 90U, kDefaultHomingConfig, kDefaultMotorConfig, 10081U}));
 }
 
 void test_persistent_settings_loads_newest_valid_record() {
@@ -965,6 +987,28 @@ void test_motor_config_command_validates_reports_and_updates() {
                                .normalMaxSpeedStepsPerSecond);
 }
 
+void test_auto_home_interval_command_validates_reports_and_updates() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  TEST_ASSERT_EQUAL_UINT16(0U, controller.autoHomeIntervalMinutes());
+
+  controller.handleCommand("AUTOHOME 1440");
+  TEST_ASSERT_TRUE(events.contains(EventId::AutoHomeIntervalChanged));
+  TEST_ASSERT_EQUAL_UINT16(1440U, controller.autoHomeIntervalMinutes());
+
+  events.clear();
+  controller.handleCommand("AUTOHOME?");
+  TEST_ASSERT_EQUAL(EventId::AutoHomeIntervalReported, events.last().id);
+  TEST_ASSERT_EQUAL_INT32(1440, events.last().first);
+
+  events.clear();
+  controller.handleCommand("AUTOHOME 10081");
+  TEST_ASSERT_TRUE(events.contains(EventId::AutoHomeIntervalInvalid));
+  TEST_ASSERT_EQUAL_UINT16(1440U, controller.autoHomeIntervalMinutes());
+}
+
 void test_homing_uses_stallguard_as_min_endstop_redundancy() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -1271,11 +1315,12 @@ void test_ready_faults_on_unexpected_switch_and_stall() {
 
   FakeStepper stalledStepper;
   CapturingEvents stalledEvents;
+  ControllerConfig stalledConfig = kFastTestConfig;
+  stalledConfig.freeCheckSteps = 0;
   FanFlapController stalledController(stalledStepper, stalledEvents,
-                                      kFastTestConfig);
+                                      stalledConfig);
   bringControllerToReady(stalledController, stalledStepper, stalledEvents);
-  stalledStepper.position_ = 400;
-  stalledController.tick(kNoInputs, 20U);
+  stalledStepper.position_ = 500;
   stalledEvents.clear();
 
   stalledController.tick(DigitalInputs{false, false, true}, 21U);
@@ -1537,10 +1582,68 @@ void test_move_reached_event_is_emitted_after_target_position_is_reached() {
   TEST_ASSERT_EQUAL(EventId::MoveReached, events.last().id);
   TEST_ASSERT_EQUAL_INT32(600, events.last().first);
   TEST_ASSERT_EQUAL_INT32(750, events.last().second);
+  TEST_ASSERT_FALSE(stepper.enabled_);
 
   controller.tick(kNoInputs, 22U);
 
   TEST_ASSERT_EQUAL_UINT32(1U, events.count(EventId::MoveReached));
+}
+
+void test_new_move_reenables_driver_after_position_hold_disable() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.position_ = 400;
+  controller.tick(kNoInputs, 20U);
+  controller.handleCommand("GOTO 600");
+  stepper.position_ = 600;
+  controller.tick(kNoInputs, 21U);
+  TEST_ASSERT_FALSE(stepper.enabled_);
+
+  events.clear();
+  controller.handleCommand("GOTO 300");
+
+  TEST_ASSERT_TRUE(stepper.enabled_);
+  TEST_ASSERT_TRUE(events.contains(EventId::MoveAccepted));
+  TEST_ASSERT_EQUAL_INT32(300, controller.targetPosition());
+}
+
+void test_auto_home_interval_references_after_idle_interval() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  stepper.position_ = controller.targetPosition();
+  controller.tick(kNoInputs, 20U);
+  events.clear();
+  TEST_ASSERT_TRUE(controller.setAutoHomeIntervalMinutes(1U));
+  TEST_ASSERT_EQUAL(ControllerState::Ready, controller.state());
+
+  controller.tick(kNoInputs, 60012U);
+
+  TEST_ASSERT_EQUAL(ControllerState::AutoRehome, controller.state());
+  TEST_ASSERT_TRUE(events.contains(EventId::AutoHomeIntervalElapsed));
+}
+
+void test_auto_home_interval_waits_until_move_is_finished() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+
+  bringControllerToReady(controller, stepper, events);
+  TEST_ASSERT_TRUE(controller.setAutoHomeIntervalMinutes(1U));
+  stepper.position_ = 400;
+  controller.handleCommand("GOTO 600");
+  events.clear();
+
+  controller.tick(kNoInputs, 60011U);
+
+  TEST_ASSERT_EQUAL(ControllerState::Ready, controller.state());
+  TEST_ASSERT_FALSE(events.contains(EventId::AutoHomeIntervalElapsed));
+  TEST_ASSERT_EQUAL_INT32(600, controller.targetPosition());
 }
 
 void test_move_free_check_faults_when_valve_is_blocked() {
@@ -1827,14 +1930,14 @@ void test_modbus_read_ignores_broadcast_and_rejects_invalid_ranges() {
   TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
 
   uart.clearWritten();
-  std::uint8_t tooManyRegisters[8]{1U, 0x03U, 0U, 0U, 0U, 37U, 0U, 0U};
+  std::uint8_t tooManyRegisters[8]{1U, 0x03U, 0U, 0U, 0U, 38U, 0U, 0U};
   feedModbusFrame(server, tooManyRegisters, 6U);
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x83U, uart.written_[1]);
   TEST_ASSERT_EQUAL_UINT8(0x02U, uart.written_[2]);
 
   uart.clearWritten();
-  std::uint8_t endOverflow[8]{1U, 0x03U, 0U, 35U, 0U, 2U, 0U, 0U};
+  std::uint8_t endOverflow[8]{1U, 0x03U, 0U, 36U, 0U, 2U, 0U, 0U};
   feedModbusFrame(server, endOverflow, 6U);
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x83U, uart.written_[1]);
@@ -1910,7 +2013,7 @@ void test_modbus_reads_release_diagnostic_registers() {
   TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 7U));
   TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 9U));
   TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 11U));
-  TEST_ASSERT_EQUAL_UINT16(5U, responseUint16(uart, 13U));
+  TEST_ASSERT_EQUAL_UINT16(6U, responseUint16(uart, 13U));
 }
 
 void test_modbus_rejects_writes_to_release_diagnostic_registers() {
@@ -1951,12 +2054,12 @@ void test_modbus_reads_full_release_register_block() {
   FanFlapController controller(stepper, events, kFastTestConfig);
   ModbusRtuServer server(controller, uart);
 
-  std::uint8_t frame[8]{1U, 0x03U, 0U, 0U, 0U, 36U, 0U, 0U};
+  std::uint8_t frame[8]{1U, 0x03U, 0U, 0U, 0U, 37U, 0U, 0U};
   feedModbusFrame(server, frame, 6U);
 
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
   TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[1]);
-  TEST_ASSERT_EQUAL_UINT8(72U, uart.written_[2]);
+  TEST_ASSERT_EQUAL_UINT8(74U, uart.written_[2]);
 }
 
 void test_modbus_reads_configured_boot_reason_register() {
@@ -1984,7 +2087,7 @@ void test_modbus_rejects_read_past_release_register_block() {
   FanFlapController controller(stepper, events, kFastTestConfig);
   ModbusRtuServer server(controller, uart);
 
-  std::uint8_t frame[8]{1U, 0x03U, 0U, 35U, 0U, 2U, 0U, 0U};
+  std::uint8_t frame[8]{1U, 0x03U, 0U, 36U, 0U, 2U, 0U, 0U};
   feedModbusFrame(server, frame, 6U);
 
   TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
@@ -2253,6 +2356,42 @@ void test_modbus_motor_config_registers_validate_and_update() {
       0xE9U, 0U, 0U};
   feedModbusFrame(server, invalidCurrent, 6U);
   TEST_ASSERT_EQUAL_UINT16(850U, controller.motorConfig().runCurrentMilliamps);
+  TEST_ASSERT_EQUAL_UINT8(0x86U, uart.written_[1]);
+  TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[2]);
+}
+
+void test_modbus_auto_home_interval_register_validates_and_updates() {
+  FakeStepper stepper;
+  CapturingEvents events;
+  FakeUart uart;
+  FanFlapController controller(stepper, events, kFastTestConfig);
+  ModbusRtuServer server(controller, uart);
+
+  std::uint8_t readDefault[8]{
+      1U, 0x03U, 0x00U,
+      static_cast<std::uint8_t>(ModbusRegister::AutoHomeIntervalMinutes), 0x00U,
+      0x01U, 0U, 0U};
+  feedModbusFrame(server, readDefault, 6U);
+  TEST_ASSERT_EQUAL_UINT16(0U, responseUint16(uart, 3U));
+
+  uart.clearWritten();
+  std::uint8_t writeInterval[8]{
+      1U, 0x06U, 0x00U,
+      static_cast<std::uint8_t>(ModbusRegister::AutoHomeIntervalMinutes), 0x05U,
+      0xA0U, 0U, 0U};
+  feedModbusFrame(server, writeInterval, 6U);
+  TEST_ASSERT_EQUAL_UINT16(1440U, controller.autoHomeIntervalMinutes());
+  TEST_ASSERT_TRUE(events.contains(EventId::AutoHomeIntervalChanged));
+  TEST_ASSERT_EQUAL_UINT8(1U, uart.written_[0]);
+  TEST_ASSERT_EQUAL_UINT8(0x06U, uart.written_[1]);
+
+  uart.clearWritten();
+  std::uint8_t invalidInterval[8]{
+      1U, 0x06U, 0x00U,
+      static_cast<std::uint8_t>(ModbusRegister::AutoHomeIntervalMinutes), 0x27U,
+      0x61U, 0U, 0U};
+  feedModbusFrame(server, invalidInterval, 6U);
+  TEST_ASSERT_EQUAL_UINT16(1440U, controller.autoHomeIntervalMinutes());
   TEST_ASSERT_EQUAL_UINT8(0x86U, uart.written_[1]);
   TEST_ASSERT_EQUAL_UINT8(0x03U, uart.written_[2]);
 }
@@ -2651,6 +2790,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_persistent_settings_save_and_reload_valid_settings);
   RUN_TEST(test_persistent_settings_save_and_reload_homing_config);
   RUN_TEST(test_persistent_settings_save_and_reload_motor_config);
+  RUN_TEST(test_persistent_settings_save_and_reload_auto_home_interval);
   RUN_TEST(test_persistent_settings_reject_corrupt_or_out_of_range_data);
   RUN_TEST(test_persistent_settings_loads_newest_valid_record);
   RUN_TEST(test_persistent_settings_falls_back_to_previous_slot_after_corruption);
@@ -2671,6 +2811,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_homing_config_command_acknowledges_unchanged_config_during_homing);
   RUN_TEST(test_homing_config_command_can_restart_homing_during_setup);
   RUN_TEST(test_motor_config_command_validates_reports_and_updates);
+  RUN_TEST(test_auto_home_interval_command_validates_reports_and_updates);
   RUN_TEST(test_homing_uses_stallguard_as_min_endstop_redundancy);
   RUN_TEST(test_homing_ignores_stallguard_until_minimum_travel_is_reached);
   RUN_TEST(test_homing_uses_stallguard_as_max_endstop_redundancy);
@@ -2697,6 +2838,9 @@ int main(int argc, char** argv) {
   RUN_TEST(test_home_command_after_fault_does_not_bypass_disabled_driver);
   RUN_TEST(test_move_starts_and_passes_valve_free_check);
   RUN_TEST(test_move_reached_event_is_emitted_after_target_position_is_reached);
+  RUN_TEST(test_new_move_reenables_driver_after_position_hold_disable);
+  RUN_TEST(test_auto_home_interval_references_after_idle_interval);
+  RUN_TEST(test_auto_home_interval_waits_until_move_is_finished);
   RUN_TEST(test_move_free_check_faults_when_valve_is_blocked);
   RUN_TEST(test_ready_move_faults_when_position_does_not_progress);
   RUN_TEST(test_free_check_times_out_before_required_travel);
@@ -2726,6 +2870,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_modbus_stallguard_threshold_register_validates_and_updates);
   RUN_TEST(test_modbus_homing_config_registers_validate_and_update);
   RUN_TEST(test_modbus_motor_config_registers_validate_and_update);
+  RUN_TEST(test_modbus_auto_home_interval_register_validates_and_updates);
   RUN_TEST(test_modbus_broadcast_write_is_ignored_for_home_safety);
   RUN_TEST(test_modbus_safe_position_register_validates_and_updates);
   RUN_TEST(test_modbus_rejects_soft_endstop_writes_while_faulted);

@@ -42,10 +42,12 @@ FanFlapController::FanFlapController(StepperPort& motor, EventSink& events,
       lastProgressPosition_(0),
       lastProgressMs_(kTimerNotStarted),
       freeCheckStartMs_(kTimerNotStarted),
+      lastReferenceMs_(0U),
       safePositionPermille_(config.safePositionPermille <= 1000U
                                 ? config.safePositionPermille
                                 : 1000U),
       stallGuardThreshold_(kDefaultStallGuardThreshold),
+      autoHomeIntervalMinutes_(kDefaultAutoHomeIntervalMinutes),
       homingConfig_(kDefaultHomingConfig),
       motorConfig_{static_cast<std::uint16_t>(config.normalMaxSpeed),
                    static_cast<std::uint16_t>(config.homingMaxSpeed),
@@ -74,6 +76,7 @@ void FanFlapController::begin() {
   lastProgressPosition_ = 0;
   lastProgressMs_ = kTimerNotStarted;
   freeCheckStartMs_ = kTimerNotStarted;
+  lastReferenceMs_ = 0U;
   lastFaultReason_ = FaultReason::None;
 
   motor_.setDriverEnabled(true);
@@ -177,6 +180,10 @@ std::uint8_t FanFlapController::stallGuardThreshold() const {
   return stallGuardThreshold_;
 }
 
+std::uint16_t FanFlapController::autoHomeIntervalMinutes() const {
+  return autoHomeIntervalMinutes_;
+}
+
 HomingConfig FanFlapController::homingConfig() const { return homingConfig_; }
 
 MotorConfig FanFlapController::motorConfig() const { return motorConfig_; }
@@ -258,6 +265,22 @@ bool FanFlapController::setStallGuardThreshold(const std::uint16_t threshold) {
 
   stallGuardThreshold_ = acceptedThreshold;
   emit(EventId::StallGuardThresholdChanged, stallGuardThreshold_);
+  return true;
+}
+
+bool FanFlapController::setAutoHomeIntervalMinutes(
+    const std::uint16_t minutes) {
+  if (!autoHomeIntervalMinutesIsValid(minutes)) {
+    emit(EventId::AutoHomeIntervalInvalid, minutes);
+    return false;
+  }
+
+  if (autoHomeIntervalMinutes_ == minutes) {
+    return true;
+  }
+
+  autoHomeIntervalMinutes_ = minutes;
+  emit(EventId::AutoHomeIntervalChanged, autoHomeIntervalMinutes_);
   return true;
 }
 
@@ -433,6 +456,10 @@ void FanFlapController::handleCommandText(const TextView& text) {
     emit(EventId::StallGuardThresholdReported, stallGuardThreshold_);
   } else if (readArgument(text, "STALLGUARD", argument)) {
     handleStallGuardThresholdCommand(argument);
+  } else if (equals(text, "AUTOHOME?")) {
+    emit(EventId::AutoHomeIntervalReported, autoHomeIntervalMinutes_);
+  } else if (readArgument(text, "AUTOHOME", argument)) {
+    handleAutoHomeIntervalCommand(argument);
   } else if (equals(text, "HOMECFG?")) {
     emit(EventId::HomingConfigReported,
          static_cast<std::int32_t>(homingConfig_.minSwitch),
@@ -618,6 +645,7 @@ void FanFlapController::handleHomingMaxState(const DigitalInputs& inputs,
 void FanFlapController::handleHomingMaxSettlingState(
     const std::uint32_t nowMs) {
   if (hasElapsed(nowMs, stateTimestampMs_, config_.settleDelayMs)) {
+    lastReferenceMs_ = nowMs;
     const std::int32_t safePosition =
         positionFromPermille(safePositionPermille_);
     static_cast<void>(moveTo(safePosition));
@@ -649,6 +677,9 @@ void FanFlapController::handleReadyState(const DigitalInputs& inputs,
     enterError(FaultReason::StallGuardDuringMove);
   } else {
     updateMotionSupervision(nowMs);
+    if (state_ == ControllerState::Ready) {
+      updateAutoHome(nowMs);
+    }
   }
 }
 
@@ -838,6 +869,9 @@ void FanFlapController::updateMotionSupervision(const std::uint32_t nowMs) {
   if (moveConfirmationPending_ && (current == targetPosition_)) {
     moveConfirmationPending_ = false;
     motionSupervisionActive_ = false;
+    motor_.stop();
+    motor_.setCurrentPosition(motor_.currentPosition());
+    motor_.setDriverEnabled(false);
     emit(EventId::MoveReached, targetPosition_,
          static_cast<std::int32_t>(permilleFromPosition(current)), false,
          static_cast<std::int32_t>(degreeFromPosition(current)));
@@ -864,6 +898,30 @@ void FanFlapController::updateMotionSupervision(const std::uint32_t nowMs) {
   if (hasElapsed(nowMs, lastProgressMs_, config_.motionNoProgressTimeoutMs)) {
     enterError(FaultReason::MotionNoProgress);
   }
+}
+
+void FanFlapController::updateAutoHome(const std::uint32_t nowMs) {
+  if ((autoHomeIntervalMinutes_ == 0U) || !autoHomeIdle()) {
+    return;
+  }
+
+  if (hasElapsed(nowMs, lastReferenceMs_,
+                 minutesToMs(autoHomeIntervalMinutes_))) {
+    emit(EventId::AutoHomeIntervalElapsed, autoHomeIntervalMinutes_);
+    resetMotor();
+  }
+}
+
+bool FanFlapController::autoHomeIdle() const {
+  return (state_ == ControllerState::Ready) &&
+         (currentPosition() == targetPosition_) &&
+         !valveFreeCheckActive_ &&
+         !motionSupervisionActive_ &&
+         !moveConfirmationPending_;
+}
+
+std::uint32_t FanFlapController::minutesToMs(const std::uint16_t minutes) {
+  return static_cast<std::uint32_t>(minutes) * 60UL * 1000UL;
 }
 
 void FanFlapController::beginValveFreeCheck() {
@@ -1069,6 +1127,23 @@ void FanFlapController::handleStallGuardThresholdCommand(
   const bool unchanged = stallGuardThreshold_ == acceptedValue;
   if (setStallGuardThreshold(acceptedValue) && unchanged) {
     emit(EventId::StallGuardThresholdReported, stallGuardThreshold_);
+  }
+}
+
+void FanFlapController::handleAutoHomeIntervalCommand(
+    const TextView& argument) {
+  std::int32_t value = 0;
+
+  if (!parseInt32(argument, value) || (value < 0) ||
+      (value > static_cast<std::int32_t>(kMaxAutoHomeIntervalMinutes))) {
+    emit(EventId::AutoHomeIntervalInvalid, value);
+    return;
+  }
+
+  const auto acceptedValue = static_cast<std::uint16_t>(value);
+  const bool unchanged = autoHomeIntervalMinutes_ == acceptedValue;
+  if (setAutoHomeIntervalMinutes(acceptedValue) && unchanged) {
+    emit(EventId::AutoHomeIntervalReported, autoHomeIntervalMinutes_);
   }
 }
 

@@ -16,6 +16,7 @@ public static class FanFlapProfile
             SettingDefinition.Numeric("soft.min.degree", "Min Winkel", 0, 90, "degree"),
             SettingDefinition.Numeric("soft.max.degree", "Max Winkel", 0, 90, "degree"),
             SettingDefinition.Numeric("stallguard.threshold", "StallGuard Threshold", 0, 255, "sgthrs"),
+            SettingDefinition.Numeric("auto.home.interval.minutes", "Auto-Home Intervall", 0, 10080, "min"),
             SettingDefinition.Numeric("motor.normal.speed", "Normalfahrt Speed", 20, 5000, "steps/s"),
             SettingDefinition.Numeric("motor.homing.speed", "Homing Speed", 20, 5000, "steps/s"),
             SettingDefinition.Numeric("motor.run.current.ma", "Motorstrom", 100, 1000, "mA"),

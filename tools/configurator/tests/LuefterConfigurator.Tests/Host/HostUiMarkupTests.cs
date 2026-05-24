@@ -102,9 +102,11 @@ public sealed class HostUiMarkupTests
         Assert.Contains("Min. Winkel", markup, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Max. Winkel", markup, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("StallGuard", markup, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Auto-Home", markup, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("data-soft-min-degree", markup, StringComparison.Ordinal);
         Assert.Contains("data-soft-max-degree", markup, StringComparison.Ordinal);
         Assert.Contains("data-stallguard-threshold", markup, StringComparison.Ordinal);
+        Assert.Contains("data-auto-home-interval", markup, StringComparison.Ordinal);
         Assert.Contains("data-normal-speed", markup, StringComparison.Ordinal);
         Assert.Contains("data-homing-speed", markup, StringComparison.Ordinal);
         Assert.Contains("data-run-current-ma", markup, StringComparison.Ordinal);
@@ -115,6 +117,7 @@ public sealed class HostUiMarkupTests
         Assert.Contains("data-stepper-direction-inverted", markup, StringComparison.Ordinal);
         Assert.Contains("Motorstrom", markup, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("MOTORCFG", script, StringComparison.Ordinal);
+        Assert.Contains("AUTOHOME", script, StringComparison.Ordinal);
         Assert.Contains("Fehler neu starten", markup, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Refresh Machine", markup, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("Safe State", markup, StringComparison.OrdinalIgnoreCase);

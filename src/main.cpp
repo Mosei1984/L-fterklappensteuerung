@@ -442,6 +442,21 @@ class SerialEventSink final : public EventSink {
       case EventId::StallGuardThresholdInvalid:
         output().println(F("Ungueltiger StallGuard Threshold. Erlaubt: 0..255."));
         break;
+      case EventId::AutoHomeIntervalReported:
+        output().print(F("AUTOHOME "));
+        output().println(event.first);
+        break;
+      case EventId::AutoHomeIntervalChanged:
+        output().print(F("AUTOHOME gesetzt: "));
+        output().println(event.first);
+        break;
+      case EventId::AutoHomeIntervalInvalid:
+        output().println(
+            F("Ungueltiges Auto-Home Intervall. Erlaubt: 0..10080 Minuten."));
+        break;
+      case EventId::AutoHomeIntervalElapsed:
+        output().println(F("Auto-Home Intervall erreicht. Referenziere neu."));
+        break;
       case EventId::HomingConfigReported:
         output().print(F("HOMECFG "));
         output().print(event.first);
@@ -569,7 +584,8 @@ PersistentSettings activeSettings{
     luefterklappe::kDefaultControllerConfig.safePositionPermille,
     luefterklappe::kDefaultTmc2209Config.stallGuardThreshold,
     luefterklappe::kDefaultHomingConfig,
-    luefterklappe::kDefaultMotorConfig};
+    luefterklappe::kDefaultMotorConfig,
+    luefterklappe::kDefaultAutoHomeIntervalMinutes};
 FlashSettingsStorage settingsStorage;
 PersistentSettingsStore settingsStore(settingsStorage, activeSettings);
 BootReason bootReason = BootReason::Unknown;
@@ -650,6 +666,15 @@ void persistSettingsFromEvent(const Event& event) {
 #if LUEFTERKLAPPE_USE_TMC2209_UART
         tmcDriver.setRunCurrentMilliamps(activeSettings.motor.runCurrentMilliamps);
 #endif
+        changed = true;
+      }
+      break;
+    case EventId::AutoHomeIntervalChanged:
+      if ((event.first >= 0) &&
+          (event.first <=
+           luefterklappe::kMaxAutoHomeIntervalMinutes)) {
+        activeSettings.autoHomeIntervalMinutes =
+            static_cast<std::uint16_t>(event.first);
         changed = true;
       }
       break;
@@ -1195,6 +1220,9 @@ void setup() {
       controller.setStallGuardThreshold(activeSettings.stallGuardThreshold));
   static_cast<void>(controller.setHomingConfig(activeSettings.homing));
   static_cast<void>(controller.setMotorConfig(activeSettings.motor));
+  static_cast<void>(
+      controller.setAutoHomeIntervalMinutes(
+          activeSettings.autoHomeIntervalMinutes));
   settingsPersistenceEnabled = true;
 #if LUEFTERKLAPPE_USE_TMC2209_UART
   tmcDriver.initialize();

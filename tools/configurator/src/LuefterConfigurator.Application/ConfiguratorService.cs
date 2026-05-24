@@ -25,6 +25,7 @@ public sealed class ConfiguratorService(
     private int softMinDegree;
     private int softMaxDegree = 90;
     private int stallGuardThreshold = 100;
+    private int autoHomeIntervalMinutes;
     private int normalMaxSpeedStepsPerSecond = 400;
     private int homingMaxSpeedStepsPerSecond = 200;
     private int runCurrentMilliamps = 1000;
@@ -79,6 +80,11 @@ public sealed class ConfiguratorService(
             if (activeController.SafePositionPromille.HasValue)
             {
                 safePositionPromille = activeController.SafePositionPromille.Value;
+            }
+
+            if (activeController.AutoHomeIntervalMinutes is >= 0 and <= 10080)
+            {
+                autoHomeIntervalMinutes = activeController.AutoHomeIntervalMinutes.Value;
             }
 
             if (activeController.HomeMinSwitch.HasValue &&
@@ -158,6 +164,11 @@ public sealed class ConfiguratorService(
                 return FailureLocked("Ungueltige StallGuard Schwelle", "StallGuard muss im Bereich 0..255 liegen.");
             }
 
+            if (request.AutoHomeIntervalMinutes is < 0 or > 10080)
+            {
+                return FailureLocked("Ungueltiges Auto-Home Intervall", "Auto-Home muss im Bereich 0..10080 Minuten liegen; 0 deaktiviert es.");
+            }
+
             if (request.NormalMaxSpeedStepsPerSecond is < 20 or > 5000 ||
                 request.HomingMaxSpeedStepsPerSecond is < 20 or > 5000)
             {
@@ -180,6 +191,7 @@ public sealed class ConfiguratorService(
                 $"ID {request.DeviceId.ToString(CultureInfo.InvariantCulture)}",
                 $"SAFE {request.SafePositionPromille.ToString(CultureInfo.InvariantCulture)}",
                 $"STALLGUARD {request.StallGuardThreshold.ToString(CultureInfo.InvariantCulture)}",
+                $"AUTOHOME {request.AutoHomeIntervalMinutes.ToString(CultureInfo.InvariantCulture)}",
                 $"MOTORCFG {request.NormalMaxSpeedStepsPerSecond.ToString(CultureInfo.InvariantCulture)} {request.HomingMaxSpeedStepsPerSecond.ToString(CultureInfo.InvariantCulture)} {request.RunCurrentMilliamps.ToString(CultureInfo.InvariantCulture)}",
                 $"HOMECFG {request.HomeMinSwitch.ToString(CultureInfo.InvariantCulture)} {request.HomeMaxSwitch.ToString(CultureInfo.InvariantCulture)} {request.HomeMinDirection.ToString(CultureInfo.InvariantCulture)} {request.HomeMaxDirection.ToString(CultureInfo.InvariantCulture)} {(request.StepperDirectionInverted ? "1" : "0")}",
                 $"SOFTMIN_DEG {request.SoftMinDegree.ToString(CultureInfo.InvariantCulture)}",
@@ -216,6 +228,10 @@ public sealed class ConfiguratorService(
             activeCommandPortName = portName;
             safePositionPromille = request.SafePositionPromille;
             stallGuardThreshold = request.StallGuardThreshold;
+            if (!CommandWasRejected(commandResults, "AUTOHOME"))
+            {
+                autoHomeIntervalMinutes = request.AutoHomeIntervalMinutes;
+            }
             if (!CommandWasRejected(commandResults, "MOTORCFG"))
             {
                 normalMaxSpeedStepsPerSecond = request.NormalMaxSpeedStepsPerSecond;
@@ -573,6 +589,7 @@ public sealed class ConfiguratorService(
             softMinDegree,
             softMaxDegree,
             stallGuardThreshold,
+            autoHomeIntervalMinutes,
             normalMaxSpeedStepsPerSecond,
             homingMaxSpeedStepsPerSecond,
             runCurrentMilliamps,

@@ -23,7 +23,12 @@ public sealed class ConfiguratorServiceTests
     public async Task ScanUsesDiscoveryResultAndSafePosition()
     {
         var service = new ConfiguratorService(new FakeDiscovery([
-            new DiscoveredController(23, "USB Serial COM10", "pico-live", 875)
+            new DiscoveredController(
+                23,
+                "USB Serial COM10",
+                "pico-live",
+                875,
+                AutoHomeIntervalMinutes: 1440)
         ]));
 
         var result = await service.ScanAsync(CancellationToken.None);
@@ -31,6 +36,7 @@ public sealed class ConfiguratorServiceTests
         Assert.True(result.Success);
         Assert.Equal(23, result.Snapshot.ActiveDeviceId);
         Assert.Equal(875, result.Snapshot.SafePositionPromille);
+        Assert.Equal(1440, result.Snapshot.AutoHomeIntervalMinutes);
         Assert.Equal("USB Serial COM10", result.Snapshot.Controllers[0].TransportName);
         Assert.Equal("pico-live", result.Snapshot.Controllers[0].FirmwareVersion);
     }
@@ -57,6 +63,7 @@ public sealed class ConfiguratorServiceTests
         var badSafe = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 1001), CancellationToken.None);
         var badAngles = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 250, 80, 10), CancellationToken.None);
         var badStallGuard = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 250, 0, 90, 256), CancellationToken.None);
+        var badAutoHome = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 250, AutoHomeIntervalMinutes: 10081), CancellationToken.None);
         var badSpeed = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 250, NormalMaxSpeedStepsPerSecond: 0), CancellationToken.None);
         var badCurrent = await service.WriteConfigAsync(new ConfiguratorWriteConfigRequest(1, 250, RunCurrentMilliamps: 1200), CancellationToken.None);
 
@@ -68,6 +75,8 @@ public sealed class ConfiguratorServiceTests
         Assert.Contains("Grad", badAngles.Error, StringComparison.OrdinalIgnoreCase);
         Assert.False(badStallGuard.Success);
         Assert.Contains("StallGuard", badStallGuard.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(badAutoHome.Success);
+        Assert.Contains("Auto-Home", badAutoHome.Error, StringComparison.OrdinalIgnoreCase);
         Assert.False(badSpeed.Success);
         Assert.Contains("Geschwindigkeit", badSpeed.Error, StringComparison.OrdinalIgnoreCase);
         Assert.False(badCurrent.Success);
@@ -89,7 +98,8 @@ public sealed class ConfiguratorServiceTests
                 64,
                 NormalMaxSpeedStepsPerSecond: 900,
                 HomingMaxSpeedStepsPerSecond: 150,
-                RunCurrentMilliamps: 850),
+                RunCurrentMilliamps: 850,
+                AutoHomeIntervalMinutes: 1440),
             CancellationToken.None);
 
         Assert.True(result.Success);
@@ -98,6 +108,7 @@ public sealed class ConfiguratorServiceTests
         Assert.Equal(10, result.Snapshot.SoftMinDegree);
         Assert.Equal(80, result.Snapshot.SoftMaxDegree);
         Assert.Equal(64, result.Snapshot.StallGuardThreshold);
+        Assert.Equal(1440, result.Snapshot.AutoHomeIntervalMinutes);
         Assert.Equal(900, result.Snapshot.NormalMaxSpeedStepsPerSecond);
         Assert.Equal(150, result.Snapshot.HomingMaxSpeedStepsPerSecond);
         Assert.Equal(850, result.Snapshot.RunCurrentMilliamps);
@@ -106,6 +117,7 @@ public sealed class ConfiguratorServiceTests
         Assert.Contains(result.Snapshot.Log, line => line.Contains("SOFTMIN_DEG 10", StringComparison.Ordinal));
         Assert.Contains(result.Snapshot.Log, line => line.Contains("SOFTMAX_DEG 80", StringComparison.Ordinal));
         Assert.Contains(result.Snapshot.Log, line => line.Contains("STALLGUARD 64", StringComparison.Ordinal));
+        Assert.Contains(result.Snapshot.Log, line => line.Contains("AUTOHOME 1440", StringComparison.Ordinal));
         Assert.Contains(result.Snapshot.Log, line => line.Contains("MOTORCFG 900 150 850", StringComparison.Ordinal));
         Assert.Contains(result.Snapshot.Log, line => line.Contains("HOMECFG 0 1 0 1 0", StringComparison.Ordinal));
         Assert.DoesNotContain(result.Snapshot.Log, line => line.Contains(';', StringComparison.Ordinal));
@@ -131,12 +143,13 @@ public sealed class ConfiguratorServiceTests
                 64,
                 NormalMaxSpeedStepsPerSecond: 900,
                 HomingMaxSpeedStepsPerSecond: 150,
-                RunCurrentMilliamps: 850),
+                RunCurrentMilliamps: 850,
+                AutoHomeIntervalMinutes: 1440),
             CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal(
-            ["ID 12", "SAFE 640", "STALLGUARD 64", "MOTORCFG 900 150 850", "HOMECFG 0 1 0 1 0", "SOFTMIN_DEG 10", "SOFTMAX_DEG 80"],
+            ["ID 12", "SAFE 640", "STALLGUARD 64", "AUTOHOME 1440", "MOTORCFG 900 150 850", "HOMECFG 0 1 0 1 0", "SOFTMIN_DEG 10", "SOFTMAX_DEG 80"],
             commandClient.Sent.Select(command => command.Command));
         Assert.All(commandClient.Sent, command => Assert.Equal("COM10", command.PortName));
         Assert.Contains(result.Snapshot.Log, line => line.Contains("< ACK STALLGUARD 64", StringComparison.Ordinal));

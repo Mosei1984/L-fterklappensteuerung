@@ -15,6 +15,7 @@
   const softMinDegree = document.querySelector("[data-soft-min-degree]");
   const softMaxDegree = document.querySelector("[data-soft-max-degree]");
   const stallGuardThreshold = document.querySelector("[data-stallguard-threshold]");
+  const autoHomeInterval = document.querySelector("[data-auto-home-interval]");
   const normalSpeed = document.querySelector("[data-normal-speed]");
   const homingSpeed = document.querySelector("[data-homing-speed]");
   const runCurrentMa = document.querySelector("[data-run-current-ma]");
@@ -53,6 +54,7 @@
     {"key":"soft.min.degree","displayName":"Min Winkel","minimum":0,"maximum":90,"unit":"degree"},
     {"key":"soft.max.degree","displayName":"Max Winkel","minimum":0,"maximum":90,"unit":"degree"},
     {"key":"stallguard.threshold","displayName":"StallGuard Threshold","minimum":0,"maximum":255,"unit":"sgthrs"},
+    {"key":"auto.home.interval.minutes","displayName":"Auto-Home Intervall","minimum":0,"maximum":10080,"unit":"min"},
     {"key":"motor.normal.speed","displayName":"Normalfahrt Speed","minimum":20,"maximum":5000,"unit":"steps/s"},
     {"key":"motor.homing.speed","displayName":"Homing Speed","minimum":20,"maximum":5000,"unit":"steps/s"},
     {"key":"motor.run.current.ma","displayName":"Motorstrom","minimum":100,"maximum":1000,"unit":"mA"},
@@ -79,7 +81,8 @@
     {"kind":"Holding","address":32,"name":"stepper_direction_inverted","valueType":"UInt16","access":"ReadWrite"},
     {"kind":"Holding","address":33,"name":"normal_max_speed_steps_per_second","valueType":"UInt16","access":"ReadWrite"},
     {"kind":"Holding","address":34,"name":"homing_max_speed_steps_per_second","valueType":"UInt16","access":"ReadWrite"},
-    {"kind":"Holding","address":35,"name":"run_current_milliamps","valueType":"UInt16","access":"ReadWrite"}
+    {"kind":"Holding","address":35,"name":"run_current_milliamps","valueType":"UInt16","access":"ReadWrite"},
+    {"kind":"Holding","address":36,"name":"auto_home_interval_minutes","valueType":"UInt16","access":"ReadWrite"}
   ]
 }`;
 
@@ -113,8 +116,8 @@
       action: "firmware"
     },
     {
-      title: "ID, Winkel und StallGuard schreiben",
-      copy: "Controller-ID, sichere Stellung, Grad-Limits und StallGuard-Schwelle setzen. Der Wizard schreibt nur die sichtbaren Werte.",
+      title: "ID, Winkel und Auto-Home schreiben",
+      copy: "Controller-ID, sichere Stellung, Grad-Limits, StallGuard und Auto-Home Intervall setzen. Der Wizard schreibt nur die sichtbaren Werte.",
       actionLabel: "Werte schreiben",
       action: "write-config"
     },
@@ -282,6 +285,7 @@
     const minDegree = snapshot.softMinDegree ?? 0;
     const maxDegree = snapshot.softMaxDegree ?? 90;
     const stallGuard = snapshot.stallGuardThreshold ?? 100;
+    const autoHome = snapshot.autoHomeIntervalMinutes ?? 0;
     const normalSpeedValue = snapshot.normalMaxSpeedStepsPerSecond ?? 400;
     const homingSpeedValue = snapshot.homingMaxSpeedStepsPerSecond ?? 200;
     const runCurrentValue = snapshot.runCurrentMilliamps ?? 1000;
@@ -321,6 +325,9 @@
     }
     if (stallGuardThreshold) {
       stallGuardThreshold.value = String(stallGuard);
+    }
+    if (autoHomeInterval) {
+      autoHomeInterval.value = String(autoHome);
     }
     if (normalSpeed) {
       normalSpeed.value = String(normalSpeedValue);
@@ -446,6 +453,7 @@
       softMinDegree: Number(softMinDegree?.value || 0),
       softMaxDegree: Number(softMaxDegree?.value || 90),
       stallGuardThreshold: Number(stallGuardThreshold?.value || 100),
+      autoHomeIntervalMinutes: Number(autoHomeInterval?.value || 0),
       normalMaxSpeedStepsPerSecond: Number(normalSpeed?.value || 400),
       homingMaxSpeedStepsPerSecond: Number(homingSpeed?.value || 200),
       runCurrentMilliamps: Number(runCurrentMa?.value || 1000),
@@ -495,7 +503,7 @@
     connect: () => post("/api/controllers/connect"),
     import: () => post("/api/profiles/import", { json: sampleProfile }),
     "write-config": () => {
-      appendLog("MOTORCFG Parameter werden geschrieben.");
+      appendLog("AUTOHOME und MOTORCFG Parameter werden geschrieben.");
       return writeVisibleConfig();
     },
     home: () => post("/api/commands/home"),

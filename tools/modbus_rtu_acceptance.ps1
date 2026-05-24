@@ -379,13 +379,14 @@ function Invoke-SelfTest {
 
 function Invoke-PrintOnly {
   $steps = @(
-    'Read holding 0..35',
+    'Read holding 0..36',
     'Read diagnostics 17..22',
-    'Read degree/StallGuard/Homing/Motor 23..35',
-    'Reject read past register 35',
+    'Read degree/StallGuard/Homing/Motor/Auto-Home 23..36',
+    'Reject read past register 36',
     'Reject diagnostic write 17',
     'Reject invalid safe-position value',
     'Reject invalid StallGuard threshold',
+    'Reject invalid Auto-Home interval',
     'Reject invalid homing value',
     'Reject invalid motor speed/current values',
     'Ignore wrong device ID',
@@ -393,6 +394,7 @@ function Invoke-PrintOnly {
     'Write and restore safe-position register 16',
     'Write and restore StallGuard threshold register 27',
     'Write and restore motor speed/current registers 33..35',
+    'Write and restore Auto-Home interval register 36',
     'Frame-timeout resync with partial request',
     'Optional target-degree movement when -ExerciseMotion is set'
   )
@@ -421,20 +423,20 @@ function Invoke-HardwareAcceptance {
   try {
     $port.Open()
 
-    $all = Invoke-ReadHolding -Port $port -Address $DeviceId -Start 0 -Quantity 36 -Title 'Read holding 0..35'
+    $all = Invoke-ReadHolding -Port $port -Address $DeviceId -Start 0 -Quantity 37 -Title 'Read holding 0..36'
     if ($all[7] -ne $DeviceId) {
       throw "Register 7 reported device ID $($all[7]), expected $DeviceId"
     }
-    if ($all[22] -ne 5) {
-      throw "Protocol register 22 reported $($all[22]), expected 5"
+    if ($all[22] -ne 6) {
+      throw "Protocol register 22 reported $($all[22]), expected 6"
     }
 
     $diagnostics = Invoke-ReadHolding -Port $port -Address $DeviceId -Start 17 -Quantity 6 -Title 'Read diagnostics 17..22'
-    if ($diagnostics[5] -ne 5) {
-      throw "Diagnostics protocol version reported $($diagnostics[5]), expected 5"
+    if ($diagnostics[5] -ne 6) {
+      throw "Diagnostics protocol version reported $($diagnostics[5]), expected 6"
     }
 
-    $degreeConfig = Invoke-ReadHolding -Port $port -Address $DeviceId -Start 23 -Quantity 13 -Title 'Read degree/StallGuard/Homing/Motor 23..35'
+    $degreeConfig = Invoke-ReadHolding -Port $port -Address $DeviceId -Start 23 -Quantity 14 -Title 'Read degree/StallGuard/Homing/Motor/Auto-Home 23..36'
     foreach ($index in 0..3) {
       if ($degreeConfig[$index] -gt 90) {
         throw "Degree register $($index + 23) out of range: $($degreeConfig[$index])"
@@ -456,11 +458,14 @@ function Invoke-HardwareAcceptance {
     if (($degreeConfig[12] -lt 100) -or ($degreeConfig[12] -gt 1000)) {
       throw "Motor current register 35 out of range: $($degreeConfig[12])"
     }
+    if ($degreeConfig[13] -gt 10080) {
+      throw "Auto-Home interval register 36 out of range: $($degreeConfig[13])"
+    }
 
     Invoke-ExpectException -Port $port `
-      -Frame (New-ReadHoldingFrame -Address $DeviceId -Start 35 -Quantity 2) `
+      -Frame (New-ReadHoldingFrame -Address $DeviceId -Start 36 -Quantity 2) `
       -Address $DeviceId -Function 0x03 -ExceptionCode 0x02 `
-      -Title 'Reject read past register 35'
+      -Title 'Reject read past register 36'
 
     Invoke-ExpectException -Port $port `
       -Frame (New-WriteSingleFrame -Address $DeviceId -Register 17 -Value 1) `
@@ -476,6 +481,11 @@ function Invoke-HardwareAcceptance {
       -Frame (New-WriteSingleFrame -Address $DeviceId -Register 27 -Value 256) `
       -Address $DeviceId -Function 0x06 -ExceptionCode 0x03 `
       -Title 'Reject invalid StallGuard threshold'
+
+    Invoke-ExpectException -Port $port `
+      -Frame (New-WriteSingleFrame -Address $DeviceId -Register 36 -Value 10081) `
+      -Address $DeviceId -Function 0x06 -ExceptionCode 0x03 `
+      -Title 'Reject invalid Auto-Home interval'
 
     Invoke-ExpectException -Port $port `
       -Frame (New-WriteSingleFrame -Address $DeviceId -Register 28 -Value 2) `
@@ -550,6 +560,15 @@ function Invoke-HardwareAcceptance {
       throw "Motor current write read back $($runCurrentAfterWrite[0]), expected $testRunCurrent"
     }
     Invoke-WriteSingle -Port $port -Address $DeviceId -Register 35 -Value $originalRunCurrent -Title 'Restore motor current register 35'
+
+    $originalAutoHome = $degreeConfig[13]
+    $testAutoHome = if ($originalAutoHome -eq 1440) { [uint16] 60 } else { [uint16] 1440 }
+    Invoke-WriteSingle -Port $port -Address $DeviceId -Register 36 -Value $testAutoHome -Title 'Write test Auto-Home interval register 36'
+    $autoHomeAfterWrite = Invoke-ReadHolding -Port $port -Address $DeviceId -Start 36 -Quantity 1 -Title 'Read test Auto-Home interval register 36'
+    if ($autoHomeAfterWrite[0] -ne $testAutoHome) {
+      throw "Auto-Home interval write read back $($autoHomeAfterWrite[0]), expected $testAutoHome"
+    }
+    Invoke-WriteSingle -Port $port -Address $DeviceId -Register 36 -Value $originalAutoHome -Title 'Restore Auto-Home interval register 36'
 
     $partialFrame = [byte[]] @($DeviceId, 0x03, 0x00)
     $port.DiscardInBuffer()

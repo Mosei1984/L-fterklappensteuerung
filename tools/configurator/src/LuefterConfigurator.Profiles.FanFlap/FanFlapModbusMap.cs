@@ -41,6 +41,7 @@ public static class FanFlapModbusMap
         RegisterDefinition.Holding(32, "stepper_direction_inverted", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Invert stepper direction: 0 normal, 1 inverted"),
         RegisterDefinition.Holding(33, "normal_max_speed_steps_per_second", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Normal movement maximum speed in steps per second"),
         RegisterDefinition.Holding(34, "homing_max_speed_steps_per_second", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Homing movement maximum speed in steps per second"),
-        RegisterDefinition.Holding(35, "run_current_milliamps", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "TMC2209 run current limit in milliamps")
+        RegisterDefinition.Holding(35, "run_current_milliamps", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "TMC2209 run current limit in milliamps"),
+        RegisterDefinition.Holding(36, "auto_home_interval_minutes", RegisterValueType.Unsigned16, RegisterAccess.ReadWrite, "Periodic re-homing interval in minutes; 0 disables auto-home")
     ];
 }

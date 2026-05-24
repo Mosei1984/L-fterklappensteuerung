@@ -41,7 +41,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $printOnlyText = [string]::Join("`n", [string[]] $printOnlyOutput)
-foreach ($expected in @('Read holding 0..35', 'Read diagnostics 17..22', 'Broadcast safe-position write', 'Write and restore motor speed/current registers 33..35')) {
+foreach ($expected in @('Read holding 0..36', 'Read diagnostics 17..22', 'Broadcast safe-position write', 'Write and restore Auto-Home interval register 36')) {
   if ($printOnlyText -notmatch [regex]::Escape($expected)) {
     throw "Print-only output missed expected step: $expected"
   }

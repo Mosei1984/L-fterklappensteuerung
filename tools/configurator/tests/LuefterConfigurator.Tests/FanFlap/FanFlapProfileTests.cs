@@ -16,6 +16,7 @@ public sealed class FanFlapProfileTests
         Assert.Contains(profile.Settings, setting => setting.Key == "soft.min.degree");
         Assert.Contains(profile.Settings, setting => setting.Key == "soft.max.degree");
         Assert.Contains(profile.Settings, setting => setting.Key == "stallguard.threshold");
+        Assert.Contains(profile.Settings, setting => setting.Key == "auto.home.interval.minutes");
         Assert.Contains(profile.Settings, setting => setting.Key == "motor.normal.speed");
         Assert.Contains(profile.Settings, setting => setting.Key == "motor.homing.speed");
         Assert.Contains(profile.Settings, setting => setting.Key == "motor.run.current.ma");
@@ -41,7 +42,8 @@ public sealed class FanFlapProfileTests
         Assert.Contains(profile.Registers, register => register.Name == "normal_max_speed_steps_per_second" && register.Address == 33);
         Assert.Contains(profile.Registers, register => register.Name == "homing_max_speed_steps_per_second" && register.Address == 34);
         Assert.Contains(profile.Registers, register => register.Name == "run_current_milliamps" && register.Address == 35);
+        Assert.Contains(profile.Registers, register => register.Name == "auto_home_interval_minutes" && register.Address == 36);
         Assert.Contains(profile.Registers, register => register.Name == "firmware_protocol_version" && register.Address == 22);
-        Assert.Equal(36, profile.Registers.Count);
+        Assert.Equal(37, profile.Registers.Count);
     }
 }

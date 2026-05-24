@@ -30,6 +30,7 @@ public sealed class HostApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(0, state.SoftMinDegree);
         Assert.Equal(90, state.SoftMaxDegree);
         Assert.Equal(100, state.StallGuardThreshold);
+        Assert.Equal(0, state.AutoHomeIntervalMinutes);
         Assert.Equal(400, state.NormalMaxSpeedStepsPerSecond);
         Assert.Equal(200, state.HomingMaxSpeedStepsPerSecond);
         Assert.Equal(1000, state.RunCurrentMilliamps);
@@ -52,7 +53,8 @@ public sealed class HostApiTests : IClassFixture<WebApplicationFactory<Program>>
                 64,
                 NormalMaxSpeedStepsPerSecond: 900,
                 HomingMaxSpeedStepsPerSecond: 150,
-                RunCurrentMilliamps: 850));
+                RunCurrentMilliamps: 850,
+                AutoHomeIntervalMinutes: 1440));
         var configured = await config.Content.ReadFromJsonAsync<ConfiguratorOperationResult>();
         var safe = await PostAsync(client, "/api/commands/safe");
         var refresh = await PostAsync(client, "/api/commands/refresh-machine");
@@ -68,6 +70,7 @@ public sealed class HostApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(10, configured.Snapshot.SoftMinDegree);
         Assert.Equal(80, configured.Snapshot.SoftMaxDegree);
         Assert.Equal(64, configured.Snapshot.StallGuardThreshold);
+        Assert.Equal(1440, configured.Snapshot.AutoHomeIntervalMinutes);
         Assert.Equal(900, configured.Snapshot.NormalMaxSpeedStepsPerSecond);
         Assert.Equal(150, configured.Snapshot.HomingMaxSpeedStepsPerSecond);
         Assert.Equal(850, configured.Snapshot.RunCurrentMilliamps);
@@ -75,6 +78,7 @@ public sealed class HostApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Contains(configured.Snapshot.Log, line => line.Contains("SAFE 640", StringComparison.Ordinal));
         Assert.Contains(configured.Snapshot.Log, line => line.Contains("SOFTMIN_DEG 10", StringComparison.Ordinal));
         Assert.Contains(configured.Snapshot.Log, line => line.Contains("STALLGUARD 64", StringComparison.Ordinal));
+        Assert.Contains(configured.Snapshot.Log, line => line.Contains("AUTOHOME 1440", StringComparison.Ordinal));
         Assert.Contains(configured.Snapshot.Log, line => line.Contains("MOTORCFG 900 150 850", StringComparison.Ordinal));
         Assert.True(safe.Success);
         Assert.DoesNotContain(safe.Snapshot.Log, line => line.Contains("GOTO", StringComparison.OrdinalIgnoreCase));

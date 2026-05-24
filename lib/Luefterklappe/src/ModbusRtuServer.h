@@ -52,7 +52,8 @@ enum class ModbusRegister : std::uint16_t {
   StepperDirectionInverted = 32U,
   NormalMaxSpeed = 33U,
   HomingMaxSpeed = 34U,
-  RunCurrentMilliamps = 35U
+  RunCurrentMilliamps = 35U,
+  AutoHomeIntervalMinutes = 36U
 };
 
 enum class ModbusCommand : std::uint16_t {

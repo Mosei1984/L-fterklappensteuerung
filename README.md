@@ -108,7 +108,7 @@ flowchart TB
     Controller["FanFlapController<br/>state machine, debounce, homing, faults"]
     Modbus["ModbusRtuServer<br/>CRC16, address filter, registers"]
     Tmc["Tmc2209Driver<br/>UART datagrams, CRC, StallGuard"]
-    Settings["PersistentSettings<br/>journaled ID, safe position,<br/>StallGuard, homing config, motor config, CRC"]
+    Settings["PersistentSettings<br/>journaled ID, safe position,<br/>StallGuard, homing, motor,<br/>auto-home config, CRC"]
     Ports["IoPorts interfaces<br/>StepperPort, UartPort, DelayPort, EventSink"]
   end
 
@@ -122,7 +122,7 @@ flowchart TB
 
   subgraph Quality["Quality and agent guardrails"]
     HardGate["tools/run_hard_checks.ps1<br/>all-functions gate"]
-    FirmwareTests["Firmware native tests<br/>95 cases"]
+    FirmwareTests["Firmware native tests<br/>104 cases"]
     ConfigTests["Configurator xUnit tests<br/>77 cases + Cobertura"]
     StaticChecks["clang-tidy, cppcheck, MISRA path<br/>markdownlint, Razor, LSP logs"]
     AgentHooks["tools/agent-hooks<br/>repo and subagent policy smoke tests"]
@@ -182,7 +182,7 @@ flowchart TB
 | `lib/Luefterklappe/src/FanFlapController.*` | State-Machine, Homing, Softlimits, Fehlerbehandlung, Textbefehle |
 | `lib/Luefterklappe/src/Tmc2209Driver.*` | TMC2209-UART-Datagramme, CRC, Konfiguration, StallGuard |
 | `lib/Luefterklappe/src/ModbusRtuServer.*` | Modbus-RTU-Slave, Registermap, CRC16, Exception Responses |
-| `lib/Luefterklappe/src/PersistentSettings.*` | Persistente ID/Safe-Position/StallGuard-Schwelle/Homing-/Motor-Konfiguration mit Dual-Sektor-Journal, Magic, Version und CRC |
+| `lib/Luefterklappe/src/PersistentSettings.*` | Persistente ID/Safe-Position/StallGuard-Schwelle/Homing-/Motor-/Auto-Home-Konfiguration mit Dual-Sektor-Journal, Magic, Version und CRC |
 | `src/main.cpp` | Pico/Arduino-HAL, Pinning, Serial1 RS485, TMC-UART, GPIO, Flash, Watchdog und LED |
 | `test/test_controller/test_main.cpp` | Native Unit-Tests fuer Core, Modbus und TMC |
 | `tools/la/` | sigrok-cli Capture, Decode und Offline-Analyse |
@@ -417,7 +417,7 @@ Adressen sind 0-basiert, passend fuer Loxone Config.
 | 19 | R | Letzter Settings-Status: `0` unknown, `1` default, `2` loaded, `3` saved, `4` failed |
 | 20 | R | TMC-Health: `0` unknown, `1` ok, `2` communication error, `3` disabled by build |
 | 21 | R | Boot-Grund: `0` unknown, `1` power-on, `2` watchdog, `3` software reset |
-| 22 | R | Firmware-Protokollversion, aktuell `5` |
+| 22 | R | Firmware-Protokollversion, aktuell `6` |
 | 23 | R/W | `target_degree`: Zielwinkel `0..90` Grad; `0` offen/waagrecht, `90` geschlossen/senkrecht |
 | 24 | R | `current_degree`: Istwinkel `0..90` Grad |
 | 25 | R/W | `soft_min_degree`: Soft-Min Winkel `0..90` Grad |
@@ -431,6 +431,7 @@ Adressen sind 0-basiert, passend fuer Loxone Config.
 | 33 | R/W | `normal_max_speed`: maximale Fahrgeschwindigkeit normaler Zielbewegungen in Steps/s, `20..5000` |
 | 34 | R/W | `homing_max_speed`: maximale Homing-Geschwindigkeit in Steps/s, `20..5000` |
 | 35 | R/W | `run_current_milliamps`: TMC2209-Laufstromlimit in mA, `100..1000`, wird per UART als `IHOLD_IRUN` geschrieben |
+| 36 | R/W | `auto_home_interval_minutes`: automatisches Re-Homing-Intervall in Minuten, `0..10080`; `0` deaktiviert Auto-Home |
 
 `FaultReason`-Werte in Register `17`:
 
@@ -458,7 +459,8 @@ Empfohlen fuer Loxone:
 - Register `25`, `26` und `27` als Expertenparameter fuer Grad-Limits und
   StallGuard-Schwelle verwenden; Register `28..32` nur fuer Inbetriebnahme
   der Endschalter-/Richtungszuordnung schreiben; Register `33..35` fuer
-  Speed/Strom nur nach Motor- und Mechaniktest anpassen.
+  Speed/Strom nur nach Motor- und Mechaniktest anpassen; Register `36`
+  fuer regelmaessiges Auto-Home in Minuten verwenden.
 - Nach dem Schreiben von Register `23` oder `14` Register `9`, `15` und `24`
   pollen:
   Bit3 `moving` bleibt gesetzt, bis die Istposition die Zielposition erreicht.
@@ -467,7 +469,7 @@ Empfohlen fuer Loxone:
 - Register `0` mit Wert `5` als Fehler-Rehome/Refresh-Machine-Befehl
   vorsehen, damit nach Blockade oder Endschalterfehler kein Pico-Reset noetig
   ist.
-- Register `0..35` koennen in einem Holding-Register-Block gelesen werden,
+- Register `0..36` koennen in einem Holding-Register-Block gelesen werden,
   damit Loxone/Modbus-TCP-Gateways den Zustand konsistent erfassen.
 - Schnelle Bewegung, Endschalter, Softlimits, StallGuard und Fehlerbehandlung
   lokal im Controller lassen.
@@ -505,6 +507,8 @@ adressierte Befehle funktionieren dort ebenfalls.
 | `ID<n> SAFE <0..1000>` | Safe-Position setzen und speichern |
 | `ID<n> STALLGUARD?` | StallGuard-Schwelle melden |
 | `ID<n> STALLGUARD <0..255>` | StallGuard-Schwelle setzen, speichern und auf SGTHRS schreiben |
+| `ID<n> AUTOHOME?` | Auto-Home-Intervall in Minuten melden |
+| `ID<n> AUTOHOME <0..10080>` | Auto-Home-Intervall setzen und speichern; `0` deaktiviert regelmaessiges Re-Homing |
 | `ID<n> HOMECFG?` | Homing-Zuordnung melden: Min-Switch, Max-Switch, Min-Richtung, Max-Richtung, Stepper-Invert |
 | `ID<n> HOMECFG <0\|1> <0\|1> <0\|1> <0\|1> <0\|1>` | Homing-Zuordnung setzen und speichern; unterschiedliche Switches und Richtungen sind Pflicht |
 | `ID<n> MOTORCFG?` | Motorparameter melden: Normalfahrt-Speed, Homing-Speed, TMC2209-Laufstrom in mA |
@@ -581,7 +585,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\modbus_rtu_acceptanc
 
 Der No-Hardware-Modus prueft Hard-Gate, Pico-UF2, SHA256 und Doku-Safety. Der
 Hardware-Modus prueft zusaetzlich `DIAG?`, `FAULT?`, `SELFTEST?`, Modbus
-`0..35`, Diagnose-Register `17..22`, Grad-/StallGuard-/Homing-/Motor-Register,
+`0..36`, Diagnose-Register `17..22`, Grad-/StallGuard-/Homing-/Motor-/Auto-Home-Register,
 Illegal-Address-Exceptions und
 Broadcast-Stille. Mit `-RequireLogicAnalyzer` muss auch die sigrok-Analyse ohne
 `FAIL:`-Zeile laufen.
@@ -651,7 +655,8 @@ Alternativ Modbus Holding-Register `16` mit `0..1000` schreiben.
    `0..1000`.
 8. Parameter fuer Safe-Position auf Holding-Register `16`, Wertebereich
    `0..1000`.
-9. Parameter fuer Grad-Limits und StallGuard auf Register `25..27`.
+9. Parameter fuer Grad-Limits, StallGuard und Auto-Home auf Register `25..27`
+   und `36`.
 10. Status langsam lesen: Register `8`, `9`, `15`, `16`, `24`, Intervall
     `2..5 s`.
 11. Bei mehreren Klappen jede Klappe mit eigener ID betreiben.
@@ -666,7 +671,8 @@ Manuelle Minimal-Konfiguration ohne Exportdateien:
    `0..1000`.
 6. Parameter fuer Safe-Position auf Holding-Register `16`, Wertebereich
    `0..1000`.
-7. Parameter fuer Grad-Limits und StallGuard auf Register `25..27`.
+7. Parameter fuer Grad-Limits, StallGuard und Auto-Home auf Register `25..27`
+   und `36`.
 8. Status langsam lesen: Register `8`, `9`, `15`, `16`, `24`, Intervall
    `2..5 s`.
 9. Bei mehreren Klappen jede Klappe mit eigener ID betreiben.
@@ -730,8 +736,8 @@ Dual-Sektor-Flash-Persistenz mit CRC und Generationsauswahl,
 Soft-Endstop-Clamping, ungueltige serielle Argumente, ID-Adressierung,
 Modbus-RTU-CRC, Fremdadressen, Exception Responses, Promille- und
 Grad-Zielregister, Diagnose-Register `17..22`, Grad-Limits,
-StallGuard-Schwelle, Boot-Reason, Service-Selbsttest, Bewegungen ohne
-Soft-Endstops und TMC2209-UART-Frames ab.
+StallGuard-Schwelle, Auto-Home-Intervall, Boot-Reason, Service-Selbsttest,
+Bewegungen ohne Soft-Endstops und TMC2209-UART-Frames ab.
 
 ## MCU-Portierung
 

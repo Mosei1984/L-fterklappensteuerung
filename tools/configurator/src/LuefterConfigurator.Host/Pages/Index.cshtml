@@ -153,8 +153,8 @@
                     <li class="wizard-step" data-wizard-step="4">
                         <span>4</span>
                         <div>
-                            <strong>ID, Winkel und StallGuard schreiben</strong>
-                            <p>Controller-ID, sichere Stellung, Grad-Limits und StallGuard-Schwelle setzen und speichern.</p>
+                            <strong>ID, Winkel und Auto-Home schreiben</strong>
+                            <p>Controller-ID, sichere Stellung, Grad-Limits, StallGuard und Auto-Home Intervall setzen und speichern.</p>
                         </div>
                     </li>
                     <li class="wizard-step" data-wizard-step="5">
@@ -270,6 +270,10 @@
                         <input type="number" min="0" max="255" value="100" aria-label="StallGuard Schwelle" data-stallguard-threshold />
                     </label>
                     <label>
+                        Auto-Home Intervall
+                        <input type="number" min="0" max="10080" value="0" aria-label="Auto-Home Intervall Minuten" data-auto-home-interval />
+                    </label>
+                    <label>
                         Normalfahrt Speed
                         <input type="number" min="20" max="5000" value="400" aria-label="Normalfahrt Geschwindigkeit Steps pro Sekunde" data-normal-speed />
                     </label>
@@ -364,13 +368,14 @@
                                 <tr><td>7</td><td>Device ID</td><td><span class="access-chip write">R/W</span></td></tr>
                                 <tr><td>8-11</td><td>State, Flags, Position; Bit3 bewegt</td><td><span class="access-chip read">R</span></td></tr>
                                 <tr><td>16</td><td>Sichere Stellung</td><td><span class="access-chip write">R/W</span></td></tr>
-                                <tr><td>17-22</td><td>Fehler, TMC, Boot, Protokoll v5</td><td><span class="access-chip read">R</span></td></tr>
+                                <tr><td>17-22</td><td>Fehler, TMC, Boot, Protokoll v6</td><td><span class="access-chip read">R</span></td></tr>
                                 <tr><td>23</td><td>Grad Ziel</td><td><span class="access-chip write">R/W</span></td></tr>
                                 <tr><td>24</td><td>Grad Ist</td><td><span class="access-chip read">R</span></td></tr>
                                 <tr><td>25-26</td><td>Grad Min und Max</td><td><span class="access-chip write">R/W</span></td></tr>
                                 <tr><td>27</td><td>StallGuard Schwelle</td><td><span class="access-chip write">R/W</span></td></tr>
                                 <tr><td>28-32</td><td>Homing Switches und Richtungen</td><td><span class="access-chip write">R/W</span></td></tr>
                                 <tr><td>33-35</td><td>Speed und Motorstrom</td><td><span class="access-chip write">R/W</span></td></tr>
+                                <tr><td>36</td><td>Auto-Home Intervall Minuten</td><td><span class="access-chip write">R/W</span></td></tr>
                             </tbody>
                         </table>
                     </div>

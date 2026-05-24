@@ -103,11 +103,11 @@ Die UI zeigt die Dateien nach `Export testen` direkt als Downloadlinks. Die API 
 Loxone-Hinweise:
 
 - Datei `MB_Luefterklappe_FanFlap_ID<id>.xml` in den Loxone-Config-Template-Ordner `C:\ProgramData\Loxone\Loxone Config <version>\ENG\Comm` kopieren oder ueber die Template-Importfunktion einlesen.
-- Loxone IO-Adressen sind 0-basiert und entsprechen direkt den Firmware-Holding-Registern `0..35`.
+- Loxone IO-Adressen sind 0-basiert und entsprechen direkt den Firmware-Holding-Registern `0..36`.
 - Fuer die Luefterklappe zuerst Register `23` als Analogaktor `0..90` Grad nutzen: `0` ist offen/waagrecht, `90` geschlossen/senkrecht.
 - Optional bleibt Register `14` als Legacy-Analogaktor `0..1000` Promille verfuegbar.
 - Register `8`, `9`, `15`, `16` und `24` als langsam gepollte Status-/Parameterpunkte verwenden.
-- Grad-Limits liegen auf Register `25..26`; die StallGuard-Schwelle liegt auf Register `27`; Homing-Switches, Homing-Richtungen und Stepper-Richtungsinvertierung liegen auf Register `28..32`; Motor-Speed und TMC2209-Laufstrom liegen auf Register `33..35`.
+- Grad-Limits liegen auf Register `25..26`; die StallGuard-Schwelle liegt auf Register `27`; Homing-Switches, Homing-Richtungen und Stepper-Richtungsinvertierung liegen auf Register `28..32`; Motor-Speed und TMC2209-Laufstrom liegen auf Register `33..35`; Auto-Home-Intervall in Minuten liegt auf Register `36`.
 - Register `0` mit Wert `5` als `refreshMachine`-Kommando anlegen. Das ist der
   bevorzugte Bedienbefehl nach Blockade, Endschalterfehler oder Safe-State:
   Fehler quittieren und Homing starten, ohne den Pico neu zu resetten.

@@ -5,7 +5,7 @@
 namespace luefterklappe {
 namespace {
 
-constexpr std::uint16_t kRegisterCount = 36U;
+constexpr std::uint16_t kRegisterCount = 37U;
 constexpr std::uint16_t kMaxReadRegisters = kRegisterCount;
 constexpr std::size_t kMaxWriteRegisters = kRegisterCount;
 constexpr std::uint16_t kReadyFlag = 0x0001U;
@@ -17,7 +17,7 @@ constexpr std::uint16_t kMaxDegree = 90U;
 constexpr std::uint16_t kMaxStallGuardThreshold = 255U;
 constexpr std::uint16_t kSettingsStatusOk = 0U;
 constexpr std::uint16_t kTmcHealthUnknown = 0U;
-constexpr std::uint16_t kFirmwareProtocolVersion = 5U;
+constexpr std::uint16_t kFirmwareProtocolVersion = 6U;
 
 bool isFaultState(const ControllerState state) {
   return (state == ControllerState::ErrorDetected) ||
@@ -320,6 +320,7 @@ std::uint8_t ModbusRtuServer::validateRegisterWrites(
         break;
       case ModbusRegister::SafePositionPermille:
       case ModbusRegister::StallGuardThreshold:
+      case ModbusRegister::AutoHomeIntervalMinutes:
         break;
       case ModbusRegister::HomeMinSwitch:
         hasHomingConfig = true;
@@ -528,6 +529,11 @@ std::uint8_t ModbusRtuServer::validateRegisterWrite(
         return kIllegalDataValue;
       }
       return kNoException;
+    case ModbusRegister::AutoHomeIntervalMinutes:
+      if (!autoHomeIntervalMinutesIsValid(write.value)) {
+        return kIllegalDataValue;
+      }
+      return kNoException;
     case ModbusRegister::State:
     case ModbusRegister::Flags:
     case ModbusRegister::CurrentPositionHigh:
@@ -667,6 +673,11 @@ bool ModbusRtuServer::applyRegisterWrites(const RegisterWrite* const writes,
         break;
       case ModbusRegister::StallGuardThreshold:
         if (!controller_.setStallGuardThreshold(write.value)) {
+          return false;
+        }
+        break;
+      case ModbusRegister::AutoHomeIntervalMinutes:
+        if (!controller_.setAutoHomeIntervalMinutes(write.value)) {
           return false;
         }
         break;
@@ -840,6 +851,8 @@ bool ModbusRtuServer::writeRegister(const RegisterWrite write) {
       return controller_.setSafePositionPermille(write.value);
     case ModbusRegister::StallGuardThreshold:
       return controller_.setStallGuardThreshold(write.value);
+    case ModbusRegister::AutoHomeIntervalMinutes:
+      return controller_.setAutoHomeIntervalMinutes(write.value);
     case ModbusRegister::HomeMinSwitch:
     case ModbusRegister::HomeMaxSwitch:
     case ModbusRegister::HomeMinDirection:
@@ -1044,6 +1057,9 @@ bool ModbusRtuServer::readRegister(const std::uint16_t address,
       return true;
     case ModbusRegister::RunCurrentMilliamps:
       value = controller_.motorConfig().runCurrentMilliamps;
+      return true;
+    case ModbusRegister::AutoHomeIntervalMinutes:
+      value = controller_.autoHomeIntervalMinutes();
       return true;
   }
 
