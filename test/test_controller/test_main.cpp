@@ -8,6 +8,7 @@
 #include <ModbusRtuServer.h>
 #include <MotorConfig.h>
 #include <PersistentSettings.h>
+#include <StepDirStepper.h>
 #include <Tmc2209Driver.h>
 
 #include "../../src/FirmwarePins.h"
@@ -34,6 +35,8 @@ using luefterklappe::ModbusRtuServer;
 using luefterklappe::PersistentSettings;
 using luefterklappe::PersistentSettingsStore;
 using luefterklappe::SettingsStoragePort;
+using luefterklappe::StepDirIo;
+using luefterklappe::StepDirStepper;
 using luefterklappe::StepperPort;
 using luefterklappe::Tmc2209Config;
 using luefterklappe::Tmc2209Driver;
@@ -48,6 +51,48 @@ constexpr ControllerConfig kFastTestConfig{1000L, 5UL, 100UL, 400.0F, 200.0F,
                                            3000UL, 2L};
 
 constexpr DigitalInputs kNoInputs{false, false, false};
+
+class FakeStepDirIo final : public StepDirIo {
+ public:
+  void beginStepDirOutputs() override { ++beginCount_; }
+
+  void setStepPin(const bool high) override {
+    if (high) {
+      ++stepHighCount_;
+    } else {
+      ++stepLowCount_;
+    }
+    stepPinHigh_ = high;
+  }
+
+  void setDirPin(const bool high) override {
+    if (high) {
+      ++dirHighCount_;
+    } else {
+      ++dirLowCount_;
+    }
+    dirPinHigh_ = high;
+  }
+
+  void delayMicroseconds(const std::uint32_t durationUs) override {
+    lastDelayUs_ = durationUs;
+    nowUs_ += durationUs;
+  }
+
+  std::uint32_t micros() const override { return nowUs_; }
+
+  void advanceUs(const std::uint32_t durationUs) { nowUs_ += durationUs; }
+
+  std::uint32_t nowUs_{0U};
+  std::uint32_t beginCount_{0U};
+  std::uint32_t stepHighCount_{0U};
+  std::uint32_t stepLowCount_{0U};
+  std::uint32_t dirHighCount_{0U};
+  std::uint32_t dirLowCount_{0U};
+  std::uint32_t lastDelayUs_{0U};
+  bool stepPinHigh_{false};
+  bool dirPinHigh_{false};
+};
 
 class FakeStepper final : public StepperPort {
  public:
@@ -2843,6 +2888,120 @@ void test_tmc_read_discards_stale_single_wire_write_echoes_before_poll() {
   TEST_ASSERT_EQUAL(Tmc2209PollResult::NotStalled, result);
 }
 
+void test_step_dir_stepper_reaches_positive_target_with_step_dir_pulses() {
+  FakeStepDirIo io;
+  StepDirStepper stepper(io);
+  stepper.begin();
+  stepper.setMinPulseWidth(20U);
+  stepper.setMaxSpeed(1000.0F);
+  stepper.setAcceleration(1000000.0F);
+  stepper.setCurrentPosition(0);
+  stepper.moveTo(3);
+
+  for (std::uint8_t tick = 0U; tick < 10U; ++tick) {
+    io.advanceUs(1000U);
+    stepper.run();
+  }
+
+  TEST_ASSERT_EQUAL_UINT32(1U, io.beginCount_);
+  TEST_ASSERT_EQUAL_INT32(3, stepper.currentPosition());
+  TEST_ASSERT_EQUAL_FLOAT(0.0F, stepper.speed());
+  TEST_ASSERT_EQUAL_UINT32(3U, io.stepHighCount_);
+  TEST_ASSERT_EQUAL_UINT32(3U, io.stepLowCount_);
+  TEST_ASSERT_TRUE(io.dirPinHigh_);
+  TEST_ASSERT_EQUAL_UINT32(20U, io.lastDelayUs_);
+}
+
+void test_step_dir_stepper_respects_step_interval_and_pulse_width() {
+  FakeStepDirIo io;
+  StepDirStepper stepper(io);
+  stepper.begin();
+  stepper.setMinPulseWidth(50U);
+  stepper.setMaxSpeed(1000.0F);
+  stepper.setAcceleration(1000000.0F);
+  stepper.moveTo(2);
+
+  io.advanceUs(999U);
+  stepper.run();
+  TEST_ASSERT_EQUAL_UINT32(0U, io.stepHighCount_);
+
+  io.advanceUs(1U);
+  stepper.run();
+  TEST_ASSERT_EQUAL_UINT32(1U, io.stepHighCount_);
+  TEST_ASSERT_EQUAL_UINT32(1U, io.stepLowCount_);
+  TEST_ASSERT_EQUAL_UINT32(50U, io.lastDelayUs_);
+
+  io.advanceUs(999U);
+  stepper.run();
+  TEST_ASSERT_EQUAL_UINT32(1U, io.stepHighCount_);
+
+  io.advanceUs(1U);
+  stepper.run();
+  TEST_ASSERT_EQUAL_UINT32(2U, io.stepHighCount_);
+  TEST_ASSERT_EQUAL_INT32(2, stepper.currentPosition());
+}
+
+void test_step_dir_stepper_negative_direction_and_micros_wraparound() {
+  FakeStepDirIo io;
+  io.nowUs_ = 0xFFFFFE0CUL;
+  StepDirStepper stepper(io);
+  stepper.begin();
+  stepper.setMaxSpeed(1000.0F);
+  stepper.setAcceleration(1000000.0F);
+  stepper.moveTo(-2);
+
+  io.advanceUs(1000U);
+  stepper.run();
+
+  TEST_ASSERT_EQUAL_INT32(-1, stepper.currentPosition());
+  TEST_ASSERT_TRUE(stepper.speed() < 0.0F);
+  TEST_ASSERT_FALSE(io.dirPinHigh_);
+  TEST_ASSERT_EQUAL_UINT32(1U, io.dirLowCount_);
+
+  io.advanceUs(1000U);
+  stepper.run();
+  TEST_ASSERT_EQUAL_INT32(-2, stepper.currentPosition());
+  TEST_ASSERT_EQUAL_FLOAT(0.0F, stepper.speed());
+}
+
+void test_step_dir_stepper_stop_holds_current_position() {
+  FakeStepDirIo io;
+  StepDirStepper stepper(io);
+  stepper.begin();
+  stepper.setMaxSpeed(1000.0F);
+  stepper.setAcceleration(1000000.0F);
+  stepper.moveTo(10);
+
+  io.advanceUs(1000U);
+  stepper.run();
+  TEST_ASSERT_EQUAL_INT32(1, stepper.currentPosition());
+
+  stepper.stop();
+  TEST_ASSERT_EQUAL_FLOAT(0.0F, stepper.speed());
+
+  for (std::uint8_t tick = 0U; tick < 5U; ++tick) {
+    io.advanceUs(1000U);
+    stepper.run();
+  }
+
+  TEST_ASSERT_EQUAL_INT32(1, stepper.currentPosition());
+}
+
+void test_step_dir_stepper_accelerates_without_exceeding_max_speed() {
+  FakeStepDirIo io;
+  StepDirStepper stepper(io);
+  stepper.begin();
+  stepper.setMaxSpeed(1000.0F);
+  stepper.setAcceleration(100.0F);
+  stepper.moveTo(100);
+
+  io.advanceUs(10000U);
+  stepper.run();
+
+  TEST_ASSERT_TRUE(stepper.speed() > 0.0F);
+  TEST_ASSERT_TRUE(stepper.speed() < 1000.0F);
+}
+
 }  // namespace
 
 void setUp() {}
@@ -2960,5 +3119,10 @@ int main(int argc, char** argv) {
   RUN_TEST(test_tmc_poll_reports_not_stalled_above_threshold);
   RUN_TEST(test_tmc_verify_communication_requires_valid_readback);
   RUN_TEST(test_tmc_read_discards_stale_single_wire_write_echoes_before_poll);
+  RUN_TEST(test_step_dir_stepper_reaches_positive_target_with_step_dir_pulses);
+  RUN_TEST(test_step_dir_stepper_respects_step_interval_and_pulse_width);
+  RUN_TEST(test_step_dir_stepper_negative_direction_and_micros_wraparound);
+  RUN_TEST(test_step_dir_stepper_stop_holds_current_position);
+  RUN_TEST(test_step_dir_stepper_accelerates_without_exceeding_max_speed);
   return UNITY_END();
 }

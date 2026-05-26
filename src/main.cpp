@@ -3,12 +3,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <array>
-#include <cmath>
 
 #include <FanFlapController.h>
 #include <InputDebouncer.h>
 #include <ModbusRtuServer.h>
 #include <PersistentSettings.h>
+#include <StepDirStepper.h>
 #include <Tmc2209Driver.h>
 
 #include "FirmwarePins.h"
@@ -61,6 +61,8 @@ using luefterklappe::ModbusRtuServer;
 using luefterklappe::PersistentSettings;
 using luefterklappe::PersistentSettingsStore;
 using luefterklappe::SettingsStoragePort;
+using luefterklappe::StepDirIo;
+using luefterklappe::StepDirStepper;
 using luefterklappe::StepperPort;
 using luefterklappe::UartPort;
 using luefterklappe::firmware::kDirPin;
@@ -114,200 +116,34 @@ static_assert((kDefaultDeviceId >= 1U) && (kDefaultDeviceId <= 247U),
 enum class BusProtocol : std::uint8_t { Idle, TextCandidate, Text, Modbus };
 enum class StatusLedMode : std::uint8_t { Off, On, SlowBlink, FastBlink };
 
-class StepDirStepper final {
+class ArduinoStepDirIo final : public StepDirIo {
  public:
-  StepDirStepper(const std::uint8_t stepPin, const std::uint8_t dirPin)
-      : stepPin_(stepPin), dirPin_(dirPin) {}
-
-  void begin() {
-    pinMode(stepPin_, OUTPUT);
-    digitalWrite(stepPin_, LOW);
-    pinMode(dirPin_, OUTPUT);
-    digitalWrite(dirPin_, LOW);
-    const std::uint32_t nowUs = nowMicros();
-    lastRunUs_ = nowUs;
-    lastStepUs_ = nowUs;
+  void beginStepDirOutputs() override {
+    pinMode(kStepPin, OUTPUT);
+    digitalWrite(kStepPin, LOW);
+    pinMode(kDirPin, OUTPUT);
+    digitalWrite(kDirPin, LOW);
   }
 
-  void setMinPulseWidth(const unsigned int pulseWidthUs) {
-    minPulseWidthUs_ = (pulseWidthUs > 0U) ? pulseWidthUs : 1U;
+  void setStepPin(const bool high) override {
+    digitalWrite(kStepPin, high ? HIGH : LOW);
   }
 
-  void setMaxSpeed(const float speed) {
-    maxSpeed_ = (speed > 0.0F) ? speed : 1.0F;
-    const float currentSpeed = absolute(speed_);
-    if (currentSpeed > maxSpeed_) {
-      speed_ = (speed_ < 0.0F) ? -maxSpeed_ : maxSpeed_;
-    }
+  void setDirPin(const bool high) override {
+    digitalWrite(kDirPin, high ? HIGH : LOW);
   }
 
-  void setAcceleration(const float acceleration) {
-    acceleration_ = (acceleration > 0.0F) ? acceleration : 1.0F;
+  void delayMicroseconds(const std::uint32_t durationUs) override {
+    ::delayMicroseconds(durationUs);
   }
 
-  void moveTo(const std::int32_t position) {
-    targetPosition_ = position;
-    lastRunUs_ = nowMicros();
+  std::uint32_t micros() const override {
+    return static_cast<std::uint32_t>(::micros());
   }
-
-  void run() {
-    const std::int64_t distance =
-        static_cast<std::int64_t>(targetPosition_) -
-        static_cast<std::int64_t>(currentPosition_);
-    if (distance == 0) {
-      speed_ = 0.0F;
-      lastRunUs_ = nowMicros();
-      return;
-    }
-
-    const std::uint32_t nowUs = nowMicros();
-    const std::int8_t direction = (distance > 0) ? 1 : -1;
-    updateSpeed(nowUs, direction, absoluteDistance(distance));
-
-    const float currentSpeed = absolute(speed_);
-    if (currentSpeed <= 0.0F) {
-      return;
-    }
-
-    if (elapsedMicros(lastStepUs_, nowUs) < stepIntervalUs(currentSpeed)) {
-      return;
-    }
-
-    stepOnce(direction);
-    currentPosition_ += direction;
-    if (currentPosition_ == targetPosition_) {
-      speed_ = 0.0F;
-    }
-  }
-
-  void stop() {
-    targetPosition_ = currentPosition_;
-    speed_ = 0.0F;
-    const std::uint32_t nowUs = nowMicros();
-    lastRunUs_ = nowUs;
-    lastStepUs_ = nowUs;
-  }
-
-  void idle() {
-    speed_ = 0.0F;
-    lastRunUs_ = nowMicros();
-  }
-
-  void setCurrentPosition(const std::int32_t position) {
-    currentPosition_ = position;
-    targetPosition_ = position;
-    speed_ = 0.0F;
-    const std::uint32_t nowUs = nowMicros();
-    lastRunUs_ = nowUs;
-    lastStepUs_ = nowUs;
-  }
-
-  std::int32_t currentPosition() const { return currentPosition_; }
-
-  float speed() const { return speed_; }
-
- private:
-  static std::uint32_t nowMicros() {
-    return static_cast<std::uint32_t>(micros());
-  }
-
-  static std::uint32_t elapsedMicros(const std::uint32_t sinceUs,
-                                     const std::uint32_t nowUs) {
-    return static_cast<std::uint32_t>(nowUs - sinceUs);
-  }
-
-  static float absolute(const float value) {
-    return (value < 0.0F) ? -value : value;
-  }
-
-  static std::int64_t absoluteDistance(const std::int64_t value) {
-    return (value < 0) ? -value : value;
-  }
-
-  float startingSpeed() const {
-    const float intervalSeconds = 0.676F * sqrtf(2.0F / acceleration_);
-    const float startSpeed =
-        (intervalSeconds > 0.0F) ? (1.0F / intervalSeconds) : maxSpeed_;
-    return (startSpeed < maxSpeed_) ? startSpeed : maxSpeed_;
-  }
-
-  float distanceLimitedSpeed(const std::int64_t distance) const {
-    const float distanceAsFloat = static_cast<float>(distance);
-    const float stopLimitedSpeed =
-        sqrtf(2.0F * acceleration_ * distanceAsFloat);
-    float limitedSpeed =
-        (stopLimitedSpeed < maxSpeed_) ? stopLimitedSpeed : maxSpeed_;
-    const float minimumSpeed = startingSpeed();
-    if (limitedSpeed < minimumSpeed) {
-      limitedSpeed = minimumSpeed;
-    }
-
-    return limitedSpeed;
-  }
-
-  void updateSpeed(const std::uint32_t nowUs, const std::int8_t direction,
-                   const std::int64_t distance) {
-    const std::uint32_t elapsedUs = elapsedMicros(lastRunUs_, nowUs);
-    lastRunUs_ = nowUs;
-
-    float currentSpeed = absolute(speed_);
-    if (((speed_ < 0.0F) && (direction > 0)) ||
-        ((speed_ > 0.0F) && (direction < 0))) {
-      currentSpeed = 0.0F;
-    }
-
-    const float targetSpeed = distanceLimitedSpeed(distance);
-    const float accelerationStep =
-        acceleration_ * (static_cast<float>(elapsedUs) / 1000000.0F);
-
-    if (currentSpeed < startingSpeed()) {
-      currentSpeed = startingSpeed();
-    } else if (currentSpeed < targetSpeed) {
-      currentSpeed += accelerationStep;
-      if (currentSpeed > targetSpeed) {
-        currentSpeed = targetSpeed;
-      }
-    } else if (currentSpeed > targetSpeed) {
-      currentSpeed -= accelerationStep;
-      if (currentSpeed < targetSpeed) {
-        currentSpeed = targetSpeed;
-      }
-    }
-
-    speed_ = (direction > 0) ? currentSpeed : -currentSpeed;
-  }
-
-  static std::uint32_t stepIntervalUs(const float speed) {
-    const float interval = 1000000.0F / speed;
-    if (interval < 1.0F) {
-      return 1U;
-    }
-
-    return static_cast<std::uint32_t>(interval);
-  }
-
-  void stepOnce(const std::int8_t direction) {
-    digitalWrite(dirPin_, (direction > 0) ? HIGH : LOW);
-    delayMicroseconds(1U);
-    digitalWrite(stepPin_, HIGH);
-    delayMicroseconds(minPulseWidthUs_);
-    digitalWrite(stepPin_, LOW);
-    lastStepUs_ = nowMicros();
-  }
-
-  const std::uint8_t stepPin_;
-  const std::uint8_t dirPin_;
-  unsigned int minPulseWidthUs_{kStepPulseWidthUs};
-  float maxSpeed_{400.0F};
-  float acceleration_{1000.0F};
-  float speed_{0.0F};
-  std::int32_t currentPosition_{0};
-  std::int32_t targetPosition_{0};
-  std::uint32_t lastRunUs_{0U};
-  std::uint32_t lastStepUs_{0U};
 };
 
-StepDirStepper stepper(kStepPin, kDirPin);
+ArduinoStepDirIo stepDirIo;
+StepDirStepper stepper(stepDirIo);
 
 class ArduinoStepperPort final : public StepperPort {
  public:
@@ -329,7 +165,7 @@ class ArduinoStepperPort final : public StepperPort {
   }
 
   void moveTo(const std::int32_t position) override {
-    stepper.moveTo(static_cast<long>(position));
+    stepper.moveTo(position);
   }
 
   void run() override {
@@ -343,7 +179,7 @@ class ArduinoStepperPort final : public StepperPort {
   void stop() override { stepper.stop(); }
 
   void setCurrentPosition(const std::int32_t position) override {
-    stepper.setCurrentPosition(static_cast<long>(position));
+    stepper.setCurrentPosition(position);
   }
 
   std::int32_t currentPosition() const override {

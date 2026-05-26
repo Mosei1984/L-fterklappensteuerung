@@ -212,7 +212,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ..\..\tools\run_hard_checks.
 
 Aktueller Stand:
 
-- Configurator xUnit: 77 Tests.
+- Configurator xUnit: 78 Tests.
 - Coverage im Hard-Gate: Cobertura XML plus Markdown-Zusammenfassung.
 - Razor-Build: `RazorCompileOnBuild=true` mit Binlog.
 - VS Code: C# Dev Kit/Test Explorer/Razor/LSP-Trace-Einstellungen werden im
