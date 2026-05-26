@@ -122,7 +122,7 @@ flowchart TB
 
   subgraph Quality["Quality and agent guardrails"]
     HardGate["tools/run_hard_checks.ps1<br/>all-functions gate"]
-    FirmwareTests["Firmware native tests<br/>104 cases"]
+    FirmwareTests["Firmware native tests<br/>106 cases"]
     ConfigTests["Configurator xUnit tests<br/>77 cases + Cobertura"]
     StaticChecks["clang-tidy, cppcheck, MISRA path<br/>markdownlint, Razor, LSP logs"]
     AgentHooks["tools/agent-hooks<br/>repo and subagent policy smoke tests"]

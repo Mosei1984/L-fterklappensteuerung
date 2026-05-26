@@ -13,7 +13,7 @@ Current coverage includes controller timing, homing, StallGuard fallback,
 persistent settings, serial commands, Modbus RTU edge cases and TMC2209 UART.
 Fault recovery is covered with the `REFRESH` command and Modbus command `5`,
 so tests verify that a failed machine can rehome without an MCU reset.
-The current native suite contains 105 test cases, including motor-disable on
+The current native suite contains 106 test cases, including motor-disable on
 fault, blocked HOME-after-fault behavior, soft-endstop write rejection while
 faulted, Modbus broadcast safety, multi-register atomicity, dual-sector
 settings journaling, debounced boot sanity, no-progress supervision,

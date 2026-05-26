@@ -1160,7 +1160,7 @@ void test_fault_reason_records_unexpected_switch_direction() {
   FanFlapController controller(stepper, events, kFastTestConfig);
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
   controller.tick(DigitalInputs{true, false, false}, 20U);
 
   TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
@@ -1170,6 +1170,54 @@ void test_fault_reason_records_unexpected_switch_direction() {
   TEST_ASSERT_EQUAL_UINT16(1U, controller.faultCount());
 }
 
+void test_ready_allows_driving_away_from_active_endstops() {
+  FakeStepper minStepper;
+  CapturingEvents minEvents;
+  FanFlapController minController(minStepper, minEvents, kFastTestConfig);
+
+  bringControllerToReady(minController, minStepper, minEvents);
+  minStepper.position_ = minController.targetPosition();
+  minController.tick(kNoInputs, 20U);
+  minController.handleCommand("GOTO 0");
+  minStepper.setCurrentPosition(0);
+  minController.tick(DigitalInputs{true, false, false}, 20U);
+  minEvents.clear();
+
+  minController.handleCommand("GOTO 300");
+  minController.tick(DigitalInputs{true, false, false}, 21U);
+
+  TEST_ASSERT_EQUAL(ControllerState::Ready, minController.state());
+  TEST_ASSERT_EQUAL(static_cast<std::uint16_t>(FaultReason::None),
+                    static_cast<std::uint16_t>(
+                        minController.lastFaultReason()));
+  TEST_ASSERT_TRUE(minStepper.enabled_);
+  TEST_ASSERT_EQUAL_INT32(300, minController.targetPosition());
+  TEST_ASSERT_TRUE(minEvents.contains(EventId::MoveAccepted));
+
+  FakeStepper maxStepper;
+  CapturingEvents maxEvents;
+  FanFlapController maxController(maxStepper, maxEvents, kFastTestConfig);
+
+  bringControllerToReady(maxController, maxStepper, maxEvents);
+  maxStepper.position_ = maxController.targetPosition();
+  maxController.tick(kNoInputs, 20U);
+  maxController.handleCommand("GOTO 800");
+  maxStepper.setCurrentPosition(maxController.maxPosition());
+  maxController.tick(DigitalInputs{false, true, false}, 20U);
+  maxEvents.clear();
+
+  maxController.handleCommand("GOTO 500");
+  maxController.tick(DigitalInputs{false, true, false}, 21U);
+
+  TEST_ASSERT_EQUAL(ControllerState::Ready, maxController.state());
+  TEST_ASSERT_EQUAL(static_cast<std::uint16_t>(FaultReason::None),
+                    static_cast<std::uint16_t>(
+                        maxController.lastFaultReason()));
+  TEST_ASSERT_TRUE(maxStepper.enabled_);
+  TEST_ASSERT_EQUAL_INT32(500, maxController.targetPosition());
+  TEST_ASSERT_TRUE(maxEvents.contains(EventId::MoveAccepted));
+}
+
 void test_reset_timeout_is_exact_and_wraparound_safe() {
   FakeStepper stepper;
   CapturingEvents events;
@@ -1177,7 +1225,7 @@ void test_reset_timeout_is_exact_and_wraparound_safe() {
   constexpr std::uint32_t kNearWrap = 0xFFFFFFF0UL;
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
 
   controller.tick(DigitalInputs{true, false, false}, 20U);
   TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
@@ -1312,7 +1360,7 @@ void test_ready_faults_on_unexpected_switch_and_stall() {
   FanFlapController controller(stepper, events, kFastTestConfig);
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
   controller.tick(DigitalInputs{true, false, false}, 20U);
   TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
 
@@ -1374,7 +1422,7 @@ void test_fault_stops_and_disables_driver_in_same_tick() {
   FanFlapController controller(stepper, events, kFastTestConfig);
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
   const std::uint32_t stopCountBeforeFault = stepper.stopCount_;
 
   controller.tick(DigitalInputs{true, false, false}, 20U);
@@ -1442,7 +1490,7 @@ void test_motor_test_runs_bounded_steps_and_refreshes_wait_timer() {
   FanFlapController controller(stepper, events, kFastTestConfig);
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
   controller.tick(DigitalInputs{true, false, false}, 20U);
   controller.tick(kNoInputs, 21U);
   TEST_ASSERT_EQUAL(ControllerState::WaitReset, controller.state());
@@ -1485,7 +1533,7 @@ void test_motor_test_rejects_unsafe_state_and_invalid_step_counts() {
   TEST_ASSERT_EQUAL(ControllerState::Ready, controller.state());
   TEST_ASSERT_TRUE(events.contains(EventId::MotorNotReady));
 
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
   controller.tick(DigitalInputs{true, false, false}, 20U);
   controller.tick(kNoInputs, 21U);
   TEST_ASSERT_EQUAL(ControllerState::WaitReset, controller.state());
@@ -1507,7 +1555,7 @@ void test_motor_test_ignores_external_faults_until_bounded_motion_finishes() {
   FanFlapController controller(stepper, events, kFastTestConfig);
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
   controller.tick(DigitalInputs{true, false, false}, 20U);
   controller.tick(kNoInputs, 21U);
   const std::uint16_t faultCountBeforeTest = controller.faultCount();
@@ -1534,7 +1582,7 @@ void test_home_command_after_fault_does_not_bypass_disabled_driver() {
   FanFlapController controller(stepper, events, kFastTestConfig);
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
 
   controller.tick(DigitalInputs{true, false, false}, 20U);
   controller.handleCommand("HOME");
@@ -1719,7 +1767,7 @@ void test_reset_command_in_wait_reset_starts_rehome() {
   FanFlapController controller(stepper, events, kFastTestConfig);
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
   controller.tick(DigitalInputs{true, false, false}, 20U);
   controller.tick(kNoInputs, 21U);
   events.clear();
@@ -1739,7 +1787,7 @@ void test_refresh_machine_command_rehomes_from_fault_without_mcu_reset() {
   FanFlapController controller(stepper, events, kFastTestConfig);
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
   controller.tick(DigitalInputs{true, false, false}, 20U);
   TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
   events.clear();
@@ -2000,7 +2048,7 @@ void test_modbus_reads_release_diagnostic_registers() {
   ModbusRtuServer server(controller, uart);
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
   controller.tick(DigitalInputs{true, false, false}, 20U);
 
   std::uint8_t frame[8]{1U, 0x03U, 0U, 17U, 0U, 6U, 0U, 0U};
@@ -2104,7 +2152,7 @@ void test_fault_and_diag_text_commands_report_fault_snapshot() {
   FanFlapController controller(stepper, events, kFastTestConfig);
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
   controller.tick(DigitalInputs{true, false, false}, 20U);
 
   events.clear();
@@ -2455,7 +2503,7 @@ void test_modbus_rejects_soft_endstop_writes_while_faulted() {
   ModbusRtuServer server(controller, uart);
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
   controller.tick(DigitalInputs{true, false, false}, 20U);
   TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
   events.clear();
@@ -2524,7 +2572,7 @@ void test_modbus_refresh_machine_command_rehomes_from_fault() {
   ModbusRtuServer server(controller, uart);
 
   bringControllerToReady(controller, stepper, events);
-  stepper.speed_ = 1.0F;
+  stepper.speed_ = -1.0F;
   controller.tick(DigitalInputs{true, false, false}, 20U);
   TEST_ASSERT_EQUAL(ControllerState::ErrorDetected, controller.state());
   events.clear();
@@ -2842,6 +2890,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_fault_reason_records_homing_min_timeout);
   RUN_TEST(test_homing_max_fails_when_switch_is_not_reached_within_travel);
   RUN_TEST(test_fault_reason_records_unexpected_switch_direction);
+  RUN_TEST(test_ready_allows_driving_away_from_active_endstops);
   RUN_TEST(test_reset_timeout_is_exact_and_wraparound_safe);
   RUN_TEST(test_serial_goto_clamps_edges_and_rejects_bad_numbers);
   RUN_TEST(test_ready_move_reenables_driver_after_direct_service_tests);
