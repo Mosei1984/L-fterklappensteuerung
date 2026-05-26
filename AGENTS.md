@@ -58,11 +58,11 @@ powershell -ExecutionPolicy Bypass -File .\tools\run_quality_checks.ps1
 
 Expected current coverage:
 
-- Firmware native tests: 104 passing tests.
+- Firmware native tests: 111 passing tests.
 - Pico firmware build: `pico` environment succeeds.
 - PlatformIO clang-tidy/cppcheck: native and pico pass.
 - Standalone cppcheck/MISRA addon path runs.
-- Configurator tests: 77 passing tests.
+- Configurator tests: 78 passing tests.
 
 Run the hard all-functions gate before push, release, installer changes or
 completion claims:

@@ -9,10 +9,36 @@ mitgelieferten Profilen.
 
 ## Nutzung
 
-Die Anwendung darf fuer Inbetriebnahme, Wartung, Test und Dokumentation der
-Luefterklappensteuerung genutzt werden. Sie arbeitet lokal auf dem PC und ist
-nicht fuer den Betrieb als sicherheitskritische alleinige Schutzvorrichtung
-bestimmt.
+Die Anwendung darf fuer private, nicht-kommerzielle Inbetriebnahme, Wartung,
+Test und Dokumentation der Luefterklappensteuerung genutzt werden. Sie arbeitet
+lokal auf dem PC und ist nicht fuer den Betrieb als sicherheitskritische
+alleinige Schutzvorrichtung bestimmt.
+
+## Kommerzielle Nutzung
+
+Kommerzielle Nutzung ist nur mit vorheriger schriftlicher kommerzieller Lizenz
+des Rechteinhabers erlaubt. Ohne diese Lizenz darf die Anwendung nicht verkauft,
+unterlizenziert, als Dienstleistung betrieben, in kommerzielle Produkte
+integriert, fuer Kunden installiert oder sonst fuer berufliche, industrielle,
+umsatzbezogene oder kundenbezogene Zwecke verwendet werden.
+Eine schriftliche kommerzielle Lizenz des Rechteinhabers ist dafuer zwingend
+erforderlich.
+
+## Weitergabe
+
+Nicht-kommerzielle Weitergabe ist nur zulaessig, wenn diese EULA, die
+Projektlizenz `LICENSE` und die Datei `THIRD_PARTY_NOTICES.md` unveraendert
+mitgeliefert werden. Veraenderte Versionen duerfen nur nicht-kommerziell
+weitergegeben werden, sofern keine andere schriftliche Lizenz des
+Rechteinhabers vorliegt.
+
+## Drittanbieter-Komponenten
+
+Die Anwendung enthaelt oder nutzt Drittanbieter-Komponenten wie .NET,
+ASP.NET Core, WebView2, System.IO.Ports und weitere Build-/Testpakete. Diese
+Komponenten bleiben unter den Lizenzbedingungen ihrer jeweiligen Rechteinhaber.
+Diese EULA schraenkt Drittanbieter-Lizenzen nicht ein und ersetzt sie nicht.
+Hinweise stehen in `THIRD_PARTY_NOTICES.md`.
 
 ## Verantwortung des Betreibers
 

@@ -16,7 +16,7 @@ constexpr std::uint16_t kMaxMotorSpeedStepsPerSecond = 5000U;
 constexpr std::uint16_t kMinRunCurrentMilliamps = 100U;
 constexpr std::uint16_t kMaxRunCurrentMilliamps = 1000U;
 
-constexpr MotorConfig kDefaultMotorConfig{400U, 200U, 1000U};
+constexpr MotorConfig kDefaultMotorConfig{400U, 200U, 650U};
 
 inline bool motorConfigValuesAreValid(const MotorConfig config) {
   return (config.normalMaxSpeedStepsPerSecond >=

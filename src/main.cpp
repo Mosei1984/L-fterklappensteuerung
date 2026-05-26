@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <AccelStepper.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -9,6 +8,7 @@
 #include <InputDebouncer.h>
 #include <ModbusRtuServer.h>
 #include <PersistentSettings.h>
+#include <StepDirStepper.h>
 #include <Tmc2209Driver.h>
 
 #include "FirmwarePins.h"
@@ -61,6 +61,8 @@ using luefterklappe::ModbusRtuServer;
 using luefterklappe::PersistentSettings;
 using luefterklappe::PersistentSettingsStore;
 using luefterklappe::SettingsStoragePort;
+using luefterklappe::StepDirIo;
+using luefterklappe::StepDirStepper;
 using luefterklappe::StepperPort;
 using luefterklappe::UartPort;
 using luefterklappe::firmware::kDirPin;
@@ -111,10 +113,37 @@ static_assert(PIN_SERIAL_RX == 1UL,
 static_assert((kDefaultDeviceId >= 1U) && (kDefaultDeviceId <= 247U),
               "Default Modbus device ID must be in range 1..247.");
 
-AccelStepper stepper(AccelStepper::DRIVER, kStepPin, kDirPin);
-
 enum class BusProtocol : std::uint8_t { Idle, TextCandidate, Text, Modbus };
 enum class StatusLedMode : std::uint8_t { Off, On, SlowBlink, FastBlink };
+
+class ArduinoStepDirIo final : public StepDirIo {
+ public:
+  void beginStepDirOutputs() override {
+    pinMode(kStepPin, OUTPUT);
+    digitalWrite(kStepPin, LOW);
+    pinMode(kDirPin, OUTPUT);
+    digitalWrite(kDirPin, LOW);
+  }
+
+  void setStepPin(const bool high) override {
+    digitalWrite(kStepPin, high ? HIGH : LOW);
+  }
+
+  void setDirPin(const bool high) override {
+    digitalWrite(kDirPin, high ? HIGH : LOW);
+  }
+
+  void delayMicroseconds(const std::uint32_t durationUs) override {
+    ::delayMicroseconds(durationUs);
+  }
+
+  std::uint32_t micros() const override {
+    return static_cast<std::uint32_t>(::micros());
+  }
+};
+
+ArduinoStepDirIo stepDirIo;
+StepDirStepper stepper(stepDirIo);
 
 class ArduinoStepperPort final : public StepperPort {
  public:
@@ -124,6 +153,8 @@ class ArduinoStepperPort final : public StepperPort {
     driverEnabled_ = enabled;
     if (enabled && !wasEnabled) {
       delay(kDriverEnableSettleMs);
+    } else if (!enabled) {
+      stepper.idle();
     }
   }
 
@@ -134,15 +165,21 @@ class ArduinoStepperPort final : public StepperPort {
   }
 
   void moveTo(const std::int32_t position) override {
-    stepper.moveTo(static_cast<long>(position));
+    stepper.moveTo(position);
   }
 
-  void run() override { static_cast<void>(stepper.run()); }
+  void run() override {
+    if (driverEnabled_) {
+      stepper.run();
+    } else {
+      stepper.idle();
+    }
+  }
 
   void stop() override { stepper.stop(); }
 
   void setCurrentPosition(const std::int32_t position) override {
-    stepper.setCurrentPosition(static_cast<long>(position));
+    stepper.setCurrentPosition(position);
   }
 
   std::int32_t currentPosition() const override {
@@ -1203,7 +1240,7 @@ void setup() {
 #if LUEFTERKLAPPE_USE_TMC2209_UART
   tmcSerial.begin(kTmcBaud);
 #endif
-  stepper.enableOutputs();
+  stepper.begin();
   stepper.setMinPulseWidth(kStepPulseWidthUs);
 
   pinMode(kMinSwitchPin, INPUT_PULLUP);
@@ -1242,6 +1279,8 @@ void loop() {
     const Tmc2209PollResult pollResult = tmcDriver.pollStallGuardStatus();
     if (pollResult == Tmc2209PollResult::Stalled) {
       stallGuardActive = true;
+    } else if (pollResult == Tmc2209PollResult::DriverError) {
+      controller.reportExternalFault(FaultReason::TmcDriverFault);
     } else if ((pollResult == Tmc2209PollResult::CommunicationError) &&
                (LUEFTERKLAPPE_REQUIRE_TMC2209_UART != 0)) {
       controller.reportExternalFault(FaultReason::TmcCommunicationLost);

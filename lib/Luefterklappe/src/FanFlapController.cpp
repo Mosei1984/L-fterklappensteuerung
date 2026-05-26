@@ -1317,11 +1317,11 @@ FaultReason FanFlapController::unexpectedSwitchReason(
     const DigitalInputs& inputs) const {
   const float currentSpeed = logicalSpeed();
 
-  if (logicalMinSwitchActive(inputs) && (currentSpeed > 0.0F)) {
+  if (logicalMinSwitchActive(inputs) && (currentSpeed < 0.0F)) {
     return FaultReason::UnexpectedMinSwitch;
   }
 
-  if (logicalMaxSwitchActive(inputs) && (currentSpeed < 0.0F)) {
+  if (logicalMaxSwitchActive(inputs) && (currentSpeed > 0.0F)) {
     return FaultReason::UnexpectedMaxSwitch;
   }
 

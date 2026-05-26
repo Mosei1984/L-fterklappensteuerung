@@ -168,6 +168,9 @@ Der Setup-Wizard zeigt die EULA, fragt den Installationsordner ab, bietet eine
 Desktop-Verknuepfung an und kann den Konfigurator direkt nach der Installation
 starten. Der Zielordner ist ohne Adminrechte standardmaessig
 `%LOCALAPPDATA%\Programs\LuefterConfigurator`.
+Das Paket enthaelt `EULA.md`, `LICENSE` und `THIRD_PARTY_NOTICES.md`; die
+kommerzielle Nutzung ist nur mit vorheriger schriftlicher kommerzieller Lizenz
+des Rechteinhabers erlaubt.
 
 Silent-Installation fuer Experten:
 
@@ -209,7 +212,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File ..\..\tools\run_hard_checks.
 
 Aktueller Stand:
 
-- Configurator xUnit: 77 Tests.
+- Configurator xUnit: 78 Tests.
 - Coverage im Hard-Gate: Cobertura XML plus Markdown-Zusammenfassung.
 - Razor-Build: `RazorCompileOnBuild=true` mit Binlog.
 - VS Code: C# Dev Kit/Test Explorer/Razor/LSP-Trace-Einstellungen werden im

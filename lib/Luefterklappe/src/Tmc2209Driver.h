@@ -16,17 +16,21 @@ struct Tmc2209Config {
   std::uint8_t globalStatusRegister;
   std::uint8_t holdRunCurrentRegister;
   std::uint8_t powerDownRegister;
+  std::uint8_t coolThresholdRegister;
   std::uint8_t chopConfigRegister;
   std::uint8_t pwmConfigRegister;
   std::uint8_t stallGuardThresholdRegister;
   std::uint8_t stallGuardResultRegister;
+  std::uint8_t driverStatusRegister;
   std::uint32_t gconfValue;
   std::uint32_t globalStatusClearValue;
   std::uint32_t holdRunCurrentValue;
   std::uint32_t powerDownValue;
+  std::uint32_t coolThresholdValue;
   std::uint32_t chopConfigValue;
   std::uint32_t pwmConfigValue;
   std::uint8_t stallGuardThreshold;
+  std::uint8_t driverStatusPollInterval;
   std::uint32_t resetDelayMs;
   std::uint32_t responseDelayMs;
 };
@@ -38,23 +42,28 @@ constexpr Tmc2209Config kDefaultTmc2209Config{
     0x01U,
     0x10U,
     0x11U,
+    0x14U,
     0x6CU,
     0x70U,
     0x40U,
     0x41U,
-    0x000001C4UL,
+    0x6FU,
+    0x000001C0UL,
     0x00000007UL,
-    0x00081F10UL,
+    0x0008140AUL,
     0x00000014UL,
+    0x000FFFFFUL,
     0x14030053UL,
     0xC80D0E24UL,
     100U,
+    8U,
     10UL,
     2UL};
 
 enum class Tmc2209PollResult : std::uint8_t {
   NotStalled,
   Stalled,
+  DriverError,
   CommunicationError
 };
 
@@ -105,6 +114,7 @@ class Tmc2209Driver {
   EventSink& events_;
   Tmc2209Config config_;
   std::uint16_t runCurrentMilliamps_;
+  std::uint8_t pollCounter_{0U};
 };
 
 }  // namespace luefterklappe

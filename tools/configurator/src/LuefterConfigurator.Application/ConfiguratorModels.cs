@@ -52,7 +52,7 @@ public sealed record ConfiguratorWriteConfigRequest(
     bool StepperDirectionInverted = false,
     int NormalMaxSpeedStepsPerSecond = 400,
     int HomingMaxSpeedStepsPerSecond = 200,
-    int RunCurrentMilliamps = 1000,
+    int RunCurrentMilliamps = 650,
     int AutoHomeIntervalMinutes = 0);
 
 public sealed record ConfiguratorProfileImportRequest(string Json);

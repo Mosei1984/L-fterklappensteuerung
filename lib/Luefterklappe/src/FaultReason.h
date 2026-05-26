@@ -18,7 +18,8 @@ enum class FaultReason : std::uint16_t {
   TmcCommunicationLost = 9U,
   SettingsWriteFailed = 10U,
   BothEndstopsActiveAtBoot = 11U,
-  WatchdogRestart = 12U
+  WatchdogRestart = 12U,
+  TmcDriverFault = 13U
 };
 
 }  // namespace luefterklappe

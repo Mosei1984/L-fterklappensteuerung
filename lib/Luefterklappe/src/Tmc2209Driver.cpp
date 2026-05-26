@@ -5,6 +5,11 @@
 #include "MotorConfig.h"
 
 namespace luefterklappe {
+namespace {
+
+constexpr std::uint32_t kCriticalDriverStatusMask = 0x0000003FUL;
+
+}
 
 Tmc2209Driver::Tmc2209Driver(UartPort& uart, DelayPort& delay,
                              EventSink& events, const Tmc2209Config& config)
@@ -24,6 +29,8 @@ void Tmc2209Driver::initialize() {
                               config_.holdRunCurrentValue});
   writeRegister(
       RegisterWrite{config_.powerDownRegister, config_.powerDownValue});
+  writeRegister(RegisterWrite{config_.coolThresholdRegister,
+                              config_.coolThresholdValue});
   writeRegister(
       RegisterWrite{config_.chopConfigRegister, config_.chopConfigValue});
   writeRegister(
@@ -142,6 +149,21 @@ void Tmc2209Driver::drainReceiveBuffer() {
 }
 
 Tmc2209PollResult Tmc2209Driver::pollStallGuardStatus() {
+  if (config_.driverStatusPollInterval > 0U) {
+    ++pollCounter_;
+    if (pollCounter_ >= config_.driverStatusPollInterval) {
+      pollCounter_ = 0U;
+      std::uint32_t driverStatus = 0U;
+      if (!readRegister(config_.driverStatusRegister, driverStatus)) {
+        return Tmc2209PollResult::CommunicationError;
+      }
+
+      if ((driverStatus & kCriticalDriverStatusMask) != 0U) {
+        return Tmc2209PollResult::DriverError;
+      }
+    }
+  }
+
   std::uint32_t stallGuardResult = 0U;
   bool readSucceeded = false;
 

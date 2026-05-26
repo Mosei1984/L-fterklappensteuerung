@@ -288,7 +288,7 @@
     const autoHome = snapshot.autoHomeIntervalMinutes ?? 0;
     const normalSpeedValue = snapshot.normalMaxSpeedStepsPerSecond ?? 400;
     const homingSpeedValue = snapshot.homingMaxSpeedStepsPerSecond ?? 200;
-    const runCurrentValue = snapshot.runCurrentMilliamps ?? 1000;
+    const runCurrentValue = snapshot.runCurrentMilliamps ?? 650;
     const minSwitch = snapshot.homeMinSwitch ?? 0;
     const maxSwitch = snapshot.homeMaxSwitch ?? 1;
     const minDirection = snapshot.homeMinDirection ?? 0;
@@ -456,7 +456,7 @@
       autoHomeIntervalMinutes: Number(autoHomeInterval?.value || 0),
       normalMaxSpeedStepsPerSecond: Number(normalSpeed?.value || 400),
       homingMaxSpeedStepsPerSecond: Number(homingSpeed?.value || 200),
-      runCurrentMilliamps: Number(runCurrentMa?.value || 1000),
+      runCurrentMilliamps: Number(runCurrentMa?.value || 650),
       homeMinSwitch: Number(homeMinSwitch?.value || 0),
       homeMaxSwitch: Number(homeMaxSwitch?.value || 1),
       homeMinDirection: Number(homeMinDirection?.value || 0),

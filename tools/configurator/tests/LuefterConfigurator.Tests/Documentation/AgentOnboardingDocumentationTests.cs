@@ -19,7 +19,7 @@ public sealed class AgentOnboardingDocumentationTests
         Assert.Contains("Quality gate", agents, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("tools/run_quality_checks.ps1", agents, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("tools/configurator", agents, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("104 passing tests", agents, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("111 passing tests", agents, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Loxone Setup Wizard", readme, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Register `0..36`", readme, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("current_degree", readme, StringComparison.OrdinalIgnoreCase);

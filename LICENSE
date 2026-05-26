@@ -1,21 +1,51 @@
-MIT License
+Luefterklappensteuerung Non-Commercial Source License
 
-Copyright (c) 2025 Airhog-Fpv
+Copyright (c) 2025-2026 Airhog-Fpv (Mosei1984).
+All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This license applies to the project code, firmware sources, configurator
+sources, scripts, documentation, diagrams and project assets in this repository
+unless a file explicitly states a different license.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Permitted non-commercial use
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+You may read, clone, build, flash, install, test, modify and use this software
+for private, educational, evaluation and other non-commercial purposes.
+
+2. Commercial use requires a separate license
+
+Commercial use requires prior written commercial license permission from the
+copyright holder. Without that permission, you may not use, copy, distribute,
+sell, sublicense, host, integrate, install for customers, provide as a paid
+service, include in a commercial product, or otherwise exploit this software or
+modified versions for commercial, professional, industrial, revenue-generating
+or customer-facing purposes.
+
+3. Redistribution and modifications
+
+Non-commercial redistribution of source or binary builds is allowed only if this
+license, copyright notices and third-party notices are preserved. Modified
+versions must keep these restrictions unless the copyright holder grants a
+different written license.
+
+4. Third-party software
+
+Third-party components, SDKs, frameworks, packages and tools remain licensed by
+their respective copyright holders under their own license terms. This project
+license does not relicense them and does not remove any notice, source, patent,
+trademark, attribution or redistribution obligations they require. See
+THIRD_PARTY_NOTICES.md for project-level notices.
+
+5. No warranty
+
+THE SOFTWARE IS PROVIDED "AS IS" AND WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+A PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT. USE WITH ELECTRICAL,
+MECHANICAL, VENTILATION OR HOME-AUTOMATION HARDWARE IS AT YOUR OWN RISK.
+
+6. Limitation of liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE COPYRIGHT HOLDER SHALL NOT BE LIABLE
+FOR ANY CLAIM, DAMAGE, LOSS OR OTHER LIABILITY ARISING FROM OR RELATED TO THE
+SOFTWARE, HARDWARE CONTROL, INSTALLATION, CONFIGURATION, DISTRIBUTION OR USE OF
+THIS PROJECT.

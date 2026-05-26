@@ -1,6 +1,7 @@
 {
   "name": "luefterklappensteuerung",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "description": "Portable fan flap controller firmware with Modbus RTU, TMC2209 UART and logic-analyzer verification.",
   "scripts": {
     "diagrams": "npm run diagrams:architecture && npm run diagrams:wiring",
