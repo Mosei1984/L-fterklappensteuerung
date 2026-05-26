@@ -28,7 +28,7 @@ public sealed class ConfiguratorService(
     private int autoHomeIntervalMinutes;
     private int normalMaxSpeedStepsPerSecond = 400;
     private int homingMaxSpeedStepsPerSecond = 200;
-    private int runCurrentMilliamps = 1000;
+    private int runCurrentMilliamps = 650;
     private int homeMinSwitch;
     private int homeMaxSwitch = 1;
     private int homeMinDirection;

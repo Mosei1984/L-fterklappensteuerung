@@ -33,7 +33,7 @@ public sealed class HostApiTests : IClassFixture<WebApplicationFactory<Program>>
         Assert.Equal(0, state.AutoHomeIntervalMinutes);
         Assert.Equal(400, state.NormalMaxSpeedStepsPerSecond);
         Assert.Equal(200, state.HomingMaxSpeedStepsPerSecond);
-        Assert.Equal(1000, state.RunCurrentMilliamps);
+        Assert.Equal(650, state.RunCurrentMilliamps);
         Assert.Empty(state.Controllers);
     }
 

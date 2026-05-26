@@ -1242,6 +1242,8 @@ void loop() {
     const Tmc2209PollResult pollResult = tmcDriver.pollStallGuardStatus();
     if (pollResult == Tmc2209PollResult::Stalled) {
       stallGuardActive = true;
+    } else if (pollResult == Tmc2209PollResult::DriverError) {
+      controller.reportExternalFault(FaultReason::TmcDriverFault);
     } else if ((pollResult == Tmc2209PollResult::CommunicationError) &&
                (LUEFTERKLAPPE_REQUIRE_TMC2209_UART != 0)) {
       controller.reportExternalFault(FaultReason::TmcCommunicationLost);

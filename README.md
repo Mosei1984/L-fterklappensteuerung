@@ -311,8 +311,10 @@ flowchart LR
 - Bias/Failsafe nur einmal am Bus, falls Master/Modul das nicht bereits stellt.
 - Wenn Modbus nicht antwortet, zuerst A/B tauschen und GND pruefen.
 - Motorversorgung `VMOT` passend zu Motor und TMC-Modul auslegen.
-- TMC2209-Stromlimit am Modul korrekt einstellen; Firmware ersetzt keine
-  elektrische Strombegrenzung.
+- TMC2209-Stromlimit am Modul passend zum Motor auslegen. Die Firmware setzt
+  per UART standardmaessig `650 mA` Laufstrom fuer den NEMA-17-42x42-Stepper;
+  die elektrische Auslegung von Treiber, Kuehlung und Netzteil bleibt trotzdem
+  Pflicht.
 - Endschalter sind aktuell als NO-Schalter nach GND vorgesehen. Fuer NC-
   Sicherheitsschalter muss die HAL-Logik angepasst oder extern invertiert werden.
 - RS485 A/B nicht direkt mit einem 3.3-V-Logic-Analyzer messen. Fuer UART-
@@ -320,9 +322,9 @@ flowchart LR
 - Auf dem Waveshare Pico-2CH-RS485 wird aktuell nur CH0 verwendet. CH1 bleibt
   frei/reserviert und ist kein automatischer Repeater fuer den Modbus-Bus.
 
-### BTT TMC2209 V1.3
+### BTT TMC2209 V1.2/V1.3
 
-Der verlinkte BIGTREETECH/BTT TMC2209 V1.3 passt zum vorgesehenen UART-Modus.
+Der verlinkte BIGTREETECH/BTT TMC2209 V1.2/V1.3 passt zum vorgesehenen UART-Modus.
 Die Firmware nutzt weiterhin STEP/DIR fuer die Bewegung und UART fuer
 Konfiguration/Diagnose/StallGuard. Praktische Punkte fuer dieses Modul:
 
@@ -331,12 +333,15 @@ Konfiguration/Diagnose/StallGuard. Praktische Punkte fuer dieses Modul:
   auf `PDN_UART` fuehren und `GP9` an dieselbe Leitung bzw. an den UART-Ausgang
   des Moduls, falls das Carrier-Board TX/RX trennt.
 - `VIO` an `3V3`, `GND` gemeinsam mit Pico, RS485 und Motorversorgung.
-- Kuehlkoerper montieren und Motorstrom/Vref am Modul passend zum Motor setzen.
-  Firmware-UART ersetzt keine elektrische Strombegrenzung.
-- StallGuard4 ist als Zusatzdiagnose aktiv. Die Schwelle ist ueber
-  `STALLGUARD <0..255>` bzw. Register `27` einstellbar; mechanische
-  Endschalter bleiben in dieser Steuerung die primaere Referenz fuer
-  Home-Betrieb.
+- Kuehlkoerper montieren und Motorstrom/Vref am Modul passend zum Motor
+  auslegen. Firmware-UART setzt `IHOLD_IRUN` standardmaessig auf `650 mA`,
+  ersetzt aber keine elektrische Strom- und Temperaturauslegung.
+- StallGuard4 laeuft ohne angeschlossenen `DIAG`-Pin ueber UART-Polling:
+  `SGTHRS` ist ueber `STALLGUARD <0..255>` bzw. Register `27` einstellbar,
+  `SG_RESULT` erkennt Last/Stall waehrend Bewegung. Zusaetzlich liest die
+  Firmware periodisch `DRV_STATUS`; Uebertemperatur-Vorwarnung,
+  Uebertemperatur und Kurzschlussflags fuehren zu Fehlercode `13`.
+  Mechanische Endschalter bleiben die primaere Referenz fuer Home-Betrieb.
 
 ## Safe-Zustand fuer Wohnraumlueftung
 
@@ -430,7 +435,7 @@ Adressen sind 0-basiert, passend fuer Loxone Config.
 | 32 | R/W | `stepper_direction_inverted`: Stepper-Richtung invertieren, `0` normal, `1` invertiert |
 | 33 | R/W | `normal_max_speed`: maximale Fahrgeschwindigkeit normaler Zielbewegungen in Steps/s, `20..5000` |
 | 34 | R/W | `homing_max_speed`: maximale Homing-Geschwindigkeit in Steps/s, `20..5000` |
-| 35 | R/W | `run_current_milliamps`: TMC2209-Laufstromlimit in mA, `100..1000`, wird per UART als `IHOLD_IRUN` geschrieben |
+| 35 | R/W | `run_current_milliamps`: TMC2209-Laufstromlimit in mA, `100..1000`, Default `650`, wird per UART als `IHOLD_IRUN` geschrieben |
 | 36 | R/W | `auto_home_interval_minutes`: automatisches Re-Homing-Intervall in Minuten, `0..10080`; `0` deaktiviert Auto-Home |
 
 `FaultReason`-Werte in Register `17`:
@@ -450,6 +455,7 @@ Adressen sind 0-basiert, passend fuer Loxone Config.
 | 10 | Settings konnten nicht geschrieben werden |
 | 11 | beide Endschalter beim Boot aktiv |
 | 12 | Watchdog-Neustart erkannt |
+| 13 | TMC2209-Treiberfehler: Uebertemperatur-Vorwarnung, Uebertemperatur oder Kurzschlussflag in `DRV_STATUS` |
 
 Empfohlen fuer Loxone:
 

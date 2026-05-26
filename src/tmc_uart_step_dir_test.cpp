@@ -37,15 +37,18 @@ constexpr std::uint8_t kRegIfcnt = 0x02U;
 constexpr std::uint8_t kRegIoin = 0x06U;
 constexpr std::uint8_t kRegIholdIrun = 0x10U;
 constexpr std::uint8_t kRegTpowerdown = 0x11U;
+constexpr std::uint8_t kRegTcoolthrs = 0x14U;
 constexpr std::uint8_t kRegSgthrs = 0x40U;
 constexpr std::uint8_t kRegSgResult = 0x41U;
+constexpr std::uint8_t kRegDrvStatus = 0x6FU;
 constexpr std::uint8_t kRegChopconf = 0x6CU;
 constexpr std::uint8_t kRegPwmconf = 0x70U;
 
-constexpr std::uint32_t kValueGconf = 0x000001C4UL;
+constexpr std::uint32_t kValueGconf = 0x000001C0UL;
 constexpr std::uint32_t kValueGstatClear = 0x00000007UL;
-constexpr std::uint32_t kValueIholdIrun = 0x00081F10UL;
+constexpr std::uint32_t kValueIholdIrun = 0x0008140AUL;
 constexpr std::uint32_t kValueTpowerdown = 0x00000014UL;
+constexpr std::uint32_t kValueTcoolthrs = 0x000FFFFFUL;
 constexpr std::uint32_t kValueChopconf = 0x14030053UL;
 constexpr std::uint32_t kValuePwmconf = 0xC80D0E24UL;
 constexpr std::uint8_t kValueSgthrs = 100U;
@@ -282,6 +285,7 @@ void tmcInit() {
   delay(10);
   writeTmcRegister(kRegIholdIrun, kValueIholdIrun);
   writeTmcRegister(kRegTpowerdown, kValueTpowerdown);
+  writeTmcRegister(kRegTcoolthrs, kValueTcoolthrs);
   writeTmcRegister(kRegChopconf, kValueChopconf);
   writeTmcRegister(kRegPwmconf, kValuePwmconf);
   writeTmcRegister(kRegSgthrs, kValueSgthrs);
@@ -301,6 +305,7 @@ void tmcInit() {
     Serial.println(F("ERR"));
   }
   printTmcRead(kRegGconf);
+  printTmcRead(kRegTcoolthrs);
   printTmcRead(kRegChopconf);
   printTmcRead(kRegPwmconf);
   printIoin();
@@ -549,6 +554,7 @@ void handleCommand(char* const line) {
     printTmcRead(kRegGstat);
   } else if (std::strcmp(command, "DRV?") == 0) {
     printTmcRead(kRegSgResult);
+    printTmcRead(kRegDrvStatus);
   } else if (std::strcmp(command, "TMCINIT") == 0) {
     tmcInit();
   } else if (std::strcmp(command, "TMCREAD") == 0) {

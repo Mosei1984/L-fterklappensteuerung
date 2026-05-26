@@ -35,11 +35,13 @@ using luefterklappe::PersistentSettings;
 using luefterklappe::PersistentSettingsStore;
 using luefterklappe::SettingsStoragePort;
 using luefterklappe::StepperPort;
+using luefterklappe::Tmc2209Config;
 using luefterklappe::Tmc2209Driver;
 using luefterklappe::Tmc2209PollResult;
 using luefterklappe::UartPort;
 using luefterklappe::kDefaultHomingConfig;
 using luefterklappe::kDefaultMotorConfig;
+using luefterklappe::kDefaultTmc2209Config;
 
 constexpr ControllerConfig kFastTestConfig{1000L, 5UL, 100UL, 400.0F, 200.0F,
                                            1000.0F, 500U, 20L, 2000UL,
@@ -420,6 +422,7 @@ void test_persistent_settings_load_defaults_from_blank_storage() {
 
   TEST_ASSERT_EQUAL_UINT8(1U, settings.deviceId);
   TEST_ASSERT_EQUAL_UINT16(1000U, settings.safePositionPermille);
+  TEST_ASSERT_EQUAL_UINT16(650U, settings.motor.runCurrentMilliamps);
 }
 
 void test_persistent_settings_save_and_reload_valid_settings() {
@@ -958,7 +961,7 @@ void test_motor_config_command_validates_reports_and_updates() {
   TEST_ASSERT_TRUE(events.contains(EventId::MotorConfigReported));
   TEST_ASSERT_EQUAL_INT32(400, events.last().first);
   TEST_ASSERT_EQUAL_INT32(200, events.last().second);
-  TEST_ASSERT_EQUAL_INT32(1000, events.last().third);
+  TEST_ASSERT_EQUAL_INT32(650, events.last().third);
 
   events.clear();
   controller.handleCommand("MOTORCFG 900 150 850");
@@ -2329,7 +2332,7 @@ void test_modbus_motor_config_registers_validate_and_update() {
 
   TEST_ASSERT_EQUAL_UINT16(400U, responseUint16(uart, 3U));
   TEST_ASSERT_EQUAL_UINT16(200U, responseUint16(uart, 5U));
-  TEST_ASSERT_EQUAL_UINT16(1000U, responseUint16(uart, 7U));
+  TEST_ASSERT_EQUAL_UINT16(650U, responseUint16(uart, 7U));
 
   uart.clearWritten();
   std::uint8_t writeConfig[15]{
@@ -2632,15 +2635,16 @@ void test_tmc_driver_initializes_and_polls_stall_status() {
   TEST_ASSERT_TRUE(events.contains(EventId::TmcConfigured));
   TEST_ASSERT_EQUAL_UINT32(1U, delay.callCount_);
   TEST_ASSERT_EQUAL_UINT32(10U, delay.lastDelayMs_);
-  TEST_ASSERT_EQUAL_UINT32(7U, uart.flushCount_);
-  TEST_ASSERT_EQUAL_UINT32(56U, uart.writtenCount_);
-  assertTmcWrite(uart, 0U, 0x00U, 0x000001C4UL);
-  assertTmcWrite(uart, 8U, 0x10U, 0x00081F10UL);
+  TEST_ASSERT_EQUAL_UINT32(8U, uart.flushCount_);
+  TEST_ASSERT_EQUAL_UINT32(64U, uart.writtenCount_);
+  assertTmcWrite(uart, 0U, 0x00U, 0x000001C0UL);
+  assertTmcWrite(uart, 8U, 0x10U, 0x0008140AUL);
   assertTmcWrite(uart, 16U, 0x11U, 0x00000014UL);
-  assertTmcWrite(uart, 24U, 0x6CU, 0x14030053UL);
-  assertTmcWrite(uart, 32U, 0x70U, 0xC80D0E24UL);
-  assertTmcWrite(uart, 40U, 0x40U, 100U);
-  assertTmcWrite(uart, 48U, 0x01U, 0x00000007UL);
+  assertTmcWrite(uart, 24U, 0x14U, 0x000FFFFFUL);
+  assertTmcWrite(uart, 32U, 0x6CU, 0x14030053UL);
+  assertTmcWrite(uart, 40U, 0x70U, 0xC80D0E24UL);
+  assertTmcWrite(uart, 48U, 0x40U, 100U);
+  assertTmcWrite(uart, 56U, 0x01U, 0x00000007UL);
 
   uart.clearWritten();
   TEST_ASSERT_FALSE(driver.pollStallGuard());
@@ -2656,6 +2660,22 @@ void test_tmc_driver_initializes_and_polls_stall_status() {
   queueTmcReadEchoOnNextFlush(uart, 0x41U);
   queueTmcResponseOnNextFlush(uart, 0x41U, 10U);
   TEST_ASSERT_TRUE(driver.pollStallGuard());
+}
+
+void test_tmc_poll_reports_driver_error_from_drv_status_without_diag_pin() {
+  FakeUart uart;
+  FakeDelay delay;
+  CapturingEvents events;
+  Tmc2209Config config = kDefaultTmc2209Config;
+  config.driverStatusPollInterval = 1U;
+  Tmc2209Driver driver(uart, delay, events, config);
+
+  queueTmcResponseOnNextFlush(uart, 0x6FU, 0x00000002UL);
+
+  const Tmc2209PollResult result = driver.pollStallGuardStatus();
+
+  TEST_ASSERT_EQUAL(Tmc2209PollResult::DriverError, result);
+  TEST_ASSERT_EQUAL_UINT8(0x6FU, uart.written_[2]);
 }
 
 void test_tmc_driver_updates_stallguard_threshold_register_and_poll_limit() {
@@ -2748,7 +2768,7 @@ void test_tmc_verify_communication_requires_valid_readback() {
 
   TEST_ASSERT_FALSE(driver.verifyCommunication());
 
-  queueTmcResponseOnNextFlush(uart, 0x00U, 0x000001C4UL);
+  queueTmcResponseOnNextFlush(uart, 0x00U, 0x000001C0UL);
   TEST_ASSERT_TRUE(driver.verifyCommunication());
 }
 
@@ -2758,9 +2778,10 @@ void test_tmc_read_discards_stale_single_wire_write_echoes_before_poll() {
   CapturingEvents events;
   Tmc2209Driver driver(uart, delay, events);
 
-  queueTmcWriteEcho(uart, 0x00U, 0x000001C4UL);
-  queueTmcWriteEcho(uart, 0x10U, 0x00081F10UL);
+  queueTmcWriteEcho(uart, 0x00U, 0x000001C0UL);
+  queueTmcWriteEcho(uart, 0x10U, 0x0008140AUL);
   queueTmcWriteEcho(uart, 0x11U, 0x00000014UL);
+  queueTmcWriteEcho(uart, 0x14U, 0x000FFFFFUL);
   queueTmcWriteEcho(uart, 0x6CU, 0x14030053UL);
   queueTmcWriteEcho(uart, 0x70U, 0xC80D0E24UL);
   queueTmcWriteEcho(uart, 0x40U, 100U);
@@ -2886,6 +2907,7 @@ int main(int argc, char** argv) {
   RUN_TEST(test_tmc_driver_updates_run_current_register_from_milliamps);
   RUN_TEST(test_tmc_driver_accepts_datasheet_read_reply_master_address);
   RUN_TEST(test_tmc_poll_reports_communication_error_without_response);
+  RUN_TEST(test_tmc_poll_reports_driver_error_from_drv_status_without_diag_pin);
   RUN_TEST(test_tmc_poll_reports_not_stalled_above_threshold);
   RUN_TEST(test_tmc_verify_communication_requires_valid_readback);
   RUN_TEST(test_tmc_read_discards_stale_single_wire_write_echoes_before_poll);
