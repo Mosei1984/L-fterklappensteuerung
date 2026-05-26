@@ -168,6 +168,9 @@ Der Setup-Wizard zeigt die EULA, fragt den Installationsordner ab, bietet eine
 Desktop-Verknuepfung an und kann den Konfigurator direkt nach der Installation
 starten. Der Zielordner ist ohne Adminrechte standardmaessig
 `%LOCALAPPDATA%\Programs\LuefterConfigurator`.
+Das Paket enthaelt `EULA.md`, `LICENSE` und `THIRD_PARTY_NOTICES.md`; die
+kommerzielle Nutzung ist nur mit vorheriger schriftlicher kommerzieller Lizenz
+des Rechteinhabers erlaubt.
 
 Silent-Installation fuer Experten:
 

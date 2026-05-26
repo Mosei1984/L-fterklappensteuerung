@@ -7,6 +7,8 @@ public sealed class WindowsInstallerScriptTests
     {
         var root = FindRepoRoot();
         var eulaPath = Path.Combine(root, "tools", "configurator", "EULA.md");
+        var licensePath = Path.Combine(root, "LICENSE");
+        var thirdPartyNoticesPath = Path.Combine(root, "THIRD_PARTY_NOTICES.md");
         var buildScriptPath = Path.Combine(root, "tools", "configurator", "build-windows-installer.ps1");
         var publishScriptPath = Path.Combine(root, "tools", "configurator", "publish-portable.ps1");
         var installScriptPath = Path.Combine(root, "tools", "configurator", "install-windows.ps1");
@@ -15,6 +17,8 @@ public sealed class WindowsInstallerScriptTests
         var uninstallScriptPath = Path.Combine(root, "tools", "configurator", "uninstall-windows.ps1");
 
         Assert.True(File.Exists(eulaPath), "EULA.md is required for an end-user installable package.");
+        Assert.True(File.Exists(licensePath), "A project license is required.");
+        Assert.True(File.Exists(thirdPartyNoticesPath), "Third-party notices are required.");
         Assert.True(File.Exists(buildScriptPath), "build-windows-installer.ps1 is required.");
         Assert.True(File.Exists(publishScriptPath), "publish-portable.ps1 is required.");
         Assert.True(File.Exists(installScriptPath), "install-windows.ps1 is required.");
@@ -23,6 +27,8 @@ public sealed class WindowsInstallerScriptTests
         Assert.True(File.Exists(uninstallScriptPath), "uninstall-windows.ps1 is required.");
 
         var eula = File.ReadAllText(eulaPath);
+        var license = File.ReadAllText(licensePath);
+        var thirdPartyNotices = File.ReadAllText(thirdPartyNoticesPath);
         var buildScript = File.ReadAllText(buildScriptPath);
         var publishScript = File.ReadAllText(publishScriptPath);
         var installScript = File.ReadAllText(installScriptPath);
@@ -32,6 +38,11 @@ public sealed class WindowsInstallerScriptTests
 
         Assert.Contains("Endbenutzer", eula, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Luefterklappen Konfigurator", eula, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("kommerzielle Nutzung", eula, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("schriftliche kommerzielle Lizenz", eula, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Commercial use requires", license, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("MIT License", license, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Third-party", thirdPartyNotices, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("publish-portable.ps1", buildScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("install-windows.ps1", buildScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("setup-windows.ps1", buildScript, StringComparison.OrdinalIgnoreCase);
@@ -40,6 +51,8 @@ public sealed class WindowsInstallerScriptTests
         Assert.Contains("Luefterklappen-Konfigurator.exe", publishScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("uninstall-windows.ps1", buildScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("EULA.md", buildScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("LICENSE", buildScript, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("THIRD_PARTY_NOTICES.md", buildScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Remove-Item", publishScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Refusing to clean unsafe publish directory", publishScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("INSTALL_STATUS.json", installScript, StringComparison.OrdinalIgnoreCase);
@@ -59,6 +72,20 @@ public sealed class WindowsInstallerScriptTests
         Assert.Contains("System.Windows.Forms.MessageBox", uninstallScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Force", uninstallScript, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Remove-Item", uninstallScript, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void FirmwareBuildDoesNotPullGplStepperLibrary()
+    {
+        var root = FindRepoRoot();
+        var platformioPath = Path.Combine(root, "platformio.ini");
+        var mainPath = Path.Combine(root, "src", "main.cpp");
+
+        var platformio = File.ReadAllText(platformioPath);
+        var main = File.ReadAllText(mainPath);
+
+        Assert.DoesNotContain("AccelStepper", platformio, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("#include <AccelStepper.h>", main, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

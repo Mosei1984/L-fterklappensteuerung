@@ -21,6 +21,7 @@ Raspberry-Pi-Pico/Arduino-HAL.
 - Reset-Timeout mit automatischem Re-Homing.
 - TMC2209-UART mit Datagramm-CRC, Konfiguration und einstellbarer
   StallGuard-Abfrage.
+- Eigener Pico STEP/DIR/ENABLE-Port ohne GPL-Stepper-Runtime-Abhaengigkeit.
 - Modbus-RTU-Slave fuer Loxone/Home-Automation auf RS485.
 - Geraete-ID `1..247`, Safe-Position und StallGuard-Schwelle werden im
   Pico-Flash ueber zwei physische Sektoren journalisiert und mit CRC persistiert.
@@ -71,6 +72,14 @@ Guardrails, Gate-Befehle, Release-Abnahme und Git-Regeln kompakt zusammen.
 Visual Studio oeffnet die Loesung `tools/configurator/LuefterConfigurator.sln`;
 Firmware-Builds laufen ueber PlatformIO aus dem Repository-Root.
 
+## Lizenz
+
+Der Projektcode steht unter der restriktiven `LICENSE` im Repository-Root:
+private und nicht-kommerzielle Nutzung ist erlaubt, kommerzielle Nutzung nur
+mit vorheriger schriftlicher kommerzieller Lizenz des Rechteinhabers.
+Drittanbieter-Komponenten bleiben unter ihren eigenen Bedingungen; die
+Projekt-Hinweise stehen in `THIRD_PARTY_NOTICES.md`.
+
 ## Architektur
 
 ```mermaid
@@ -98,7 +107,7 @@ flowchart TB
     Usb["USB CDC service port<br/>debug and expert text commands"]
     Rs485Hal["Serial1 RS485 HAL<br/>GP0/GP1, 38400 8N1"]
     TmcHal["TMC UART HAL<br/>GP8/GP9, 115200 8N1"]
-    StepperHal["AccelStepper HAL<br/>STEP/DIR/ENABLE"]
+    StepperHal["STEP/DIR/ENABLE HAL<br/>project runtime"]
     InputHal["GPIO inputs<br/>MIN/MAX endstops"]
     LedHal["Builtin status LED<br/>homing, ready, fault"]
     FlashHal["FlashIAP settings<br/>last two flash sectors"]
@@ -292,8 +301,8 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | `GP0` | TX | Waveshare RS485 CH0 TX/DI | UART `38400 8N1` | `Serial1 TX`, Modbus-Antworten |
 | `GP1` | RX | Waveshare RS485 CH0 RX/RO | UART `38400 8N1` | `Serial1 RX`, Modbus-Anfragen |
-| `GP2` | OUT | TMC2209 `DIR` | 3.3 V digital | AccelStepper DIR |
-| `GP4` | OUT | TMC2209 `STEP` | 3.3 V digital | AccelStepper STEP |
+| `GP2` | OUT | TMC2209 `DIR` | 3.3 V digital | STEP/DIR-Port DIR |
+| `GP4` | OUT | TMC2209 `STEP` | 3.3 V digital | STEP/DIR-Port STEP |
 | `GP5` | IN | Min-Endschalter nach GND | `INPUT_PULLUP`, aktiv LOW | Firmware erwartet NO-Schalter nach GND |
 | `GP6` | IN | Max-Endschalter nach GND | `INPUT_PULLUP`, aktiv LOW | Firmware erwartet NO-Schalter nach GND |
 | `GP7` | OUT | TMC2209 `EN`/`ENABLE` | aktiv LOW | LOW = Treiber aktiv |

@@ -18,6 +18,8 @@ $setupScript = Join-Path $PSScriptRoot 'setup-windows.ps1'
 $setupLauncher = Join-Path $PSScriptRoot 'Luefterklappen-Konfigurator-Setup.cmd'
 $uninstallScript = Join-Path $PSScriptRoot 'uninstall-windows.ps1'
 $eula = Join-Path $PSScriptRoot 'EULA.md'
+$license = Join-Path $repoRoot 'LICENSE'
+$thirdPartyNotices = Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md'
 $icon = Join-Path $PSScriptRoot 'src\LuefterConfigurator.Host\Assets\logo\luefterklappen.ico'
 
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
@@ -37,6 +39,8 @@ Copy-Item -LiteralPath $setupScript -Destination (Join-Path $portableOutput 'set
 Copy-Item -LiteralPath $setupLauncher -Destination (Join-Path $portableOutput 'Luefterklappen-Konfigurator-Setup.cmd') -Force
 Copy-Item -LiteralPath $uninstallScript -Destination (Join-Path $portableOutput 'uninstall-windows.ps1') -Force
 Copy-Item -LiteralPath $eula -Destination (Join-Path $portableOutput 'EULA.md') -Force
+Copy-Item -LiteralPath $license -Destination (Join-Path $portableOutput 'LICENSE') -Force
+Copy-Item -LiteralPath $thirdPartyNotices -Destination (Join-Path $portableOutput 'THIRD_PARTY_NOTICES.md') -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination (Join-Path $portableOutput 'README.md') -Force
 Copy-Item -LiteralPath $icon -Destination (Join-Path $portableOutput 'Luefterklappen-Konfigurator.ico') -Force
 
@@ -46,6 +50,7 @@ Luefterklappen Konfigurator Windows Setup
 1. ZIP entpacken.
 2. Luefterklappen-Konfigurator-Setup.cmd doppelklicken.
 3. Im Setup-Wizard EULA bestaetigen, Zielordner waehlen und Installieren.
+   LICENSE und THIRD_PARTY_NOTICES.md bleiben im Installationsordner.
 4. Starten:
    Start Menu > Luefterklappen Konfigurator
 5. Deinstallieren:
